@@ -1,6 +1,6 @@
 import create from "zustand";
 import clamp from "lodash-es/clamp";
-import pingSound from "/medias/ping.mp3";
+import pingSound from "/audio/ping.mp3";
 
 const ping = new Audio(pingSound);
 
