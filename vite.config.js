@@ -1,24 +1,23 @@
 import react from '@vitejs/plugin-react'
 import vitePluginCompress from 'vite-plugin-compression'
+import path from 'path'; // Importing path module
 
-const isCodeSandbox = 'SANDBOX_URL' in process.env || 'CODESANDBOX_HOST' in process.env
+// const isCodeSandbox = 'SANDBOX_URL' in process.env || 'CODESANDBOX_HOST' in process.env
 
 export default {
-    plugins:
-    [
+    plugins: [
         react(),
         vitePluginCompress(),
     ],
     root: 'src/',
     publicDir: "../public/",
     base: './',
-    server:
-    {
-        host: true,
-        open: !isCodeSandbox // Open if it's not a CodeSandbox
-    },
-    build:
-    {
+    resolve: {
+    alias: {
+      'three-stdlib': path.resolve(__dirname, 'node_modules/three-stdlib')
+    }
+  },
+    build: {
         outDir: '../docs',
         emptyOutDir: true,
         sourcemap: false
