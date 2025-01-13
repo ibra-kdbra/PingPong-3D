@@ -1,4 +1,4 @@
-# Three.js odessey
+# Ping Pong simple simulation
 
 ## Setup
 
