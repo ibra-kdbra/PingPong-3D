@@ -1,6 +1,11 @@
+import "@fontsource-variable/space-grotesk";
 import "./style.css";
 import ReactDOM from "react-dom/client";
 import Experience from "./Experience.jsx";
+import { useStore } from "./game/store.js";
+
+// Exposed for debugging / automated tests (dev builds only).
+if (import.meta.env.DEV) window.__game = useStore;
 
 const root = ReactDOM.createRoot(document.querySelector("#root"));
 
