@@ -235,6 +235,80 @@ button {
   font-weight: 500;
 }
 
+.hud-rally {
+  margin-top: 8px;
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 1px 3px rgba(6, 8, 18, 0.6);
+  animation: pop-in 0.25s var(--ease-out);
+}
+
+.hud-quote {
+  margin-top: 8px;
+  font-size: 0.9em;
+  font-style: italic;
+  color: var(--ink);
+  text-shadow: 0 1px 3px rgba(6, 8, 18, 0.6);
+  animation: banner 2.2s var(--ease-out) both;
+}
+
+.hud-quote::before {
+  content: "“";
+  color: var(--ink-mute);
+}
+
+.hud-quote::after {
+  content: "”";
+  color: var(--ink-mute);
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  vertical-align: middle;
+}
+
+.stars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.star {
+  color: var(--border);
+  display: inline-flex;
+}
+
+.star.on {
+  color: #ffd166;
+}
+
+.star.on svg path {
+  fill: currentColor;
+}
+
+.stars-lg svg {
+  width: 26px;
+  height: 26px;
+}
+
+.matchover-hint {
+  margin: -4px 0 0;
+  font-size: 0.85em;
+  color: var(--ink-mute);
+}
+
 .hud-controls-hint {
   margin-top: 6px;
   font-size: 0.75em;

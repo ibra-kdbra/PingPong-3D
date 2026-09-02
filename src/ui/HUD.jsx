@@ -62,6 +62,26 @@ function KeepUpHUD() {
   );
 }
 
+function RallyCounter() {
+  const rally = useStore((state) => state.rally);
+  if (rally < 5) return null;
+  return (
+    <div className="hud-rally" key={rally}>
+      Rally {rally}
+    </div>
+  );
+}
+
+function OpponentQuote() {
+  const quote = useStore((state) => state.quote);
+  if (!quote) return null;
+  return (
+    <div className="hud-quote" key={quote.id}>
+      {quote.text}
+    </div>
+  );
+}
+
 function MatchHUD() {
   const mode = useStore((state) => state.mode);
   const stageIndex = useStore((state) => state.stage);
@@ -72,7 +92,12 @@ function MatchHUD() {
 
   return (
     <div className="hud-match">
-      {stage && <div className="hud-stage">{stage.name}</div>}
+      {stage && (
+        <div className="hud-stage">
+          {stage.name}
+          {stage.modifier && <span className="tag">{stage.modifier}</span>}
+        </div>
+      )}
       <div className="hud-board">
         <span
           className={match.server === 1 ? "hud-name serving" : "hud-name"}
@@ -93,6 +118,8 @@ function MatchHUD() {
       {mode === "versus" && (
         <div className="hud-controls-hint">P1 mouse · P2 A/D move, W/S aim</div>
       )}
+      <OpponentQuote />
+      <RallyCounter />
     </div>
   );
 }

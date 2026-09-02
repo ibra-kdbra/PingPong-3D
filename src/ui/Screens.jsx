@@ -1,13 +1,29 @@
 import { LEVELS } from "../game/levels.js";
 import { STAGES } from "../game/stages.js";
 import { useStore } from "../game/store.js";
-import { LockIcon, CheckIcon, BackIcon } from "./icons.jsx";
+import { LockIcon, CheckIcon, BackIcon, StarIcon } from "./icons.jsx";
+
+const MAX_STARS = STAGES.length * 3;
+
+function Stars({ count, size = "" }) {
+  return (
+    <span className={`stars ${size}`} aria-label={`${count} of 3 stars`}>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className={i < count ? "star on" : "star"}>
+          <StarIcon />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function MenuScreen() {
   const best = useStore((state) => state.best);
   const unlocked = useStore((state) => state.unlocked);
+  const stars = useStore((state) => state.stars);
   const { startKeepUp, toMap, startVersus } = useStore((state) => state.api);
   const beatenAll = unlocked >= STAGES.length;
+  const totalStars = Object.values(stars).reduce((a, b) => a + b, 0);
   return (
     <div className="screen">
       <div className="panel panel-menu">
@@ -21,8 +37,10 @@ function MenuScreen() {
             <span className="mode-name">Adventure</span>
             <span className="mode-desc">
               {beatenAll
-                ? "All eight opponents beaten"
-                : `Beat ${STAGES.length} opponents · stage ${Math.min(unlocked, STAGES.length - 1) + 1} unlocked`}
+                ? `All ${STAGES.length} opponents beaten · ${totalStars}/${MAX_STARS} stars`
+                : totalStars > 0
+                  ? `Stage ${Math.min(unlocked, STAGES.length - 1) + 1} of ${STAGES.length} · ${totalStars}/${MAX_STARS} stars`
+                  : `Beat ${STAGES.length} opponents across wind, low gravity and more`}
             </span>
           </button>
           <button className="btn btn-mode" onClick={startVersus}>
@@ -49,6 +67,7 @@ function MenuScreen() {
 
 function MapScreen() {
   const unlocked = useStore((state) => state.unlocked);
+  const stars = useStore((state) => state.stars);
   const { startStage, toMenu } = useStore((state) => state.api);
   return (
     <div className="screen">
@@ -75,13 +94,22 @@ function MapScreen() {
                   <span className="stage-info">
                     <span className="stage-name">
                       {stage.name} · vs {stage.opponent}
+                      {stage.modifier && !locked && (
+                        <span className="tag">{stage.modifier}</span>
+                      )}
                     </span>
                     <span className="stage-tag">
                       {locked ? "Beat the previous stage to unlock" : stage.tagline}
                     </span>
                   </span>
                   <span className="stage-status">
-                    {locked ? <LockIcon /> : beaten ? <CheckIcon /> : `to ${stage.winScore}`}
+                    {locked ? (
+                      <LockIcon />
+                    ) : beaten ? (
+                      <Stars count={stars[i] || 0} />
+                    ) : (
+                      `to ${stage.winScore}`
+                    )}
                   </span>
                 </button>
               </li>
@@ -146,6 +174,8 @@ function MatchOverScreen() {
   const stageIndex = useStore((state) => state.stage);
   const match = useStore((state) => state.match);
   const winner = useStore((state) => state.matchWinner);
+  const matchStars = useStore((state) => state.matchStars);
+  const bestRally = useStore((state) => state.bestRally);
   const { retryMatch, nextStage, toMap, toMenu } = useStore(
     (state) => state.api
   );
@@ -179,6 +209,17 @@ function MatchOverScreen() {
           <span className="final-sep">:</span>
           {match.p2}
         </div>
+        {stage && won && <Stars count={matchStars} size="stars-lg" />}
+        {stage && won && matchStars < 3 && (
+          <p className="matchover-hint">
+            {matchStars === 1
+              ? `Hold ${stage.opponent} under ${Math.ceil(stage.winScore / 2)} for two stars`
+              : "A shutout earns three stars"}
+          </p>
+        )}
+        {bestRally >= 6 && (
+          <p className="matchover-sub">Longest rally: {bestRally} shots</p>
+        )}
         {mode === "adventure" && won && !lastStage && (
           <button className="btn btn-primary" onClick={nextStage}>
             Next stage
@@ -187,6 +228,11 @@ function MatchOverScreen() {
         {mode === "adventure" && !won && (
           <button className="btn btn-primary" onClick={retryMatch}>
             Rematch
+          </button>
+        )}
+        {mode === "adventure" && won && matchStars < 3 && (
+          <button className="btn btn-ghost" onClick={retryMatch}>
+            Replay for stars
           </button>
         )}
         {mode === "versus" && (
