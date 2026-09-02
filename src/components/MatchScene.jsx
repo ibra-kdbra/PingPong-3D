@@ -5,14 +5,17 @@ import { createMatch, makeAI, TABLE, BALL_RADIUS } from "../game/match.js";
 import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore } from "../game/store.js";
 import { audio } from "../game/audio.js";
+import { kick } from "../game/fx.js";
 
 const HALF_W = TABLE.WIDTH / 2;
 const HALF_L = TABLE.LENGTH / 2;
 /** How far the mouse drives the player paddle sideways. */
 const P1_RANGE = 6.5;
 const P2_SPEED = 15;
+/** Impact ring lifetime in seconds. */
+const RING_LIFE = 0.32;
 
-function Table({ theme }) {
+function Table({ theme, netHeight }) {
   return (
     <group>
       {/* Top */}
@@ -34,17 +37,17 @@ function Table({ theme }) {
         </mesh>
       ))}
       {/* Net */}
-      <mesh position={[0, TABLE.NET_HEIGHT / 2, 0]}>
-        <boxGeometry args={[TABLE.WIDTH + 0.6, TABLE.NET_HEIGHT, 0.04]} />
+      <mesh position={[0, netHeight / 2, 0]}>
+        <boxGeometry args={[TABLE.WIDTH + 0.6, netHeight, 0.04]} />
         <meshStandardMaterial color="#10131f" transparent opacity={0.72} />
       </mesh>
-      <mesh position={[0, TABLE.NET_HEIGHT - 0.03, 0]}>
+      <mesh position={[0, netHeight - 0.03, 0]}>
         <boxGeometry args={[TABLE.WIDTH + 0.6, 0.07, 0.06]} />
         <meshBasicMaterial color="#e8ecf8" />
       </mesh>
       {[-1, 1].map((s) => (
-        <mesh key={s} position={[s * (HALF_W + 0.35), TABLE.NET_HEIGHT / 2, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, TABLE.NET_HEIGHT, 8]} />
+        <mesh key={s} position={[s * (HALF_W + 0.35), netHeight / 2, 0]}>
+          <cylinderGeometry args={[0.06, 0.06, netHeight, 8]} />
           <meshStandardMaterial color="#39415f" />
         </mesh>
       ))}
@@ -87,22 +90,29 @@ function PaddleMesh({ color }) {
 export default function MatchScene() {
   const mode = useStore((state) => state.mode);
   const stageIndex = useStore((state) => state.stage);
-  const { matchPoint, matchOver } = useStore((state) => state.api);
+  const { matchPoint, matchOver, rallyTick, flash } = useStore(
+    (state) => state.api
+  );
   const stage = mode === "adventure" ? STAGES[stageIndex] : null;
   const theme = stage ? stage.theme : VERSUS_THEME;
+  const physics = stage?.physics ?? {};
 
   const match = useMemo(
     () =>
       createMatch({
         ai: stage ? makeAI(stage.ai) : null,
         winScore: stage ? stage.winScore : 7,
+        ...physics,
       }),
     // A new engine per mount; MatchScene is keyed by matchKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
+  const netHeight = match.state.config.netHeight;
 
   const ballRef = useRef();
+  const shadowRef = useRef();
+  const ringRef = useRef();
   const p1Ref = useRef();
   const p2Ref = useRef();
   const events = useRef(new Array(16)).current;
@@ -116,6 +126,7 @@ export default function MatchScene() {
   }).current;
   const keys = useRef({ left: false, right: false, up: false, down: false });
   const prevP1 = useRef(0);
+  const ringAge = useRef(RING_LIFE);
 
   // P2 keyboard controls (versus mode).
   useEffect(() => {
@@ -136,6 +147,12 @@ export default function MatchScene() {
       window.removeEventListener("keyup", up);
     };
   }, [mode, keys]);
+
+  const ring = (x, y, z) => {
+    if (!ringRef.current) return;
+    ringRef.current.position.set(x, y, z);
+    ringAge.current = 0;
+  };
 
   useFrame((state, rawDelta) => {
     const game = useStore.getState();
@@ -171,21 +188,63 @@ export default function MatchScene() {
 
     match.step(dt, input);
 
+    const { ball, paddles } = match.state;
     const n = match.drainEvents(events);
     for (let i = 0; i < n; i++) {
       const e = events[i];
-      if (e.type === "hit") audio.ping(6 + e.b * 0.25);
-      else if (e.type === "bounce") audio.ping(3);
-      else if (e.type === "serve") audio.serve();
-      else if (e.type === "net") audio.net();
-      else if (e.type === "point")
+      if (e.type === "hit") {
+        audio.ping(6 + e.b * 0.25);
+        ring(ball.x, ball.y, ball.z);
+        rallyTick(match.state.rallyHits);
+        if (e.b > 34) {
+          audio.smash();
+          kick(0.35);
+          if (e.a === 1) flash("Smash");
+        }
+      } else if (e.type === "bounce") {
+        audio.ping(2 + e.b * 0.12);
+        ring(ball.x, 0.02, ball.z);
+      } else if (e.type === "serve") audio.serve();
+      else if (e.type === "net") {
+        audio.net();
+        kick(0.2);
+      } else if (e.type === "netcord") {
+        audio.netCord();
+        flash("Net cord", "Still in play");
+      } else if (e.type === "point") {
+        kick(0.5);
         matchPoint(e.a, e.b, match.state.scores, match.state.server);
-      else if (e.type === "over") matchOver(e.a);
+      } else if (e.type === "over") matchOver(e.a, match.state.bestRally);
     }
 
     // Write transforms.
-    const { ball, paddles } = match.state;
-    if (ballRef.current) ballRef.current.position.set(ball.x, ball.y, ball.z);
+    if (ballRef.current) {
+      const m = ballRef.current;
+      m.position.set(ball.x, ball.y, ball.z);
+      // Roll with the flight, plus a visible twist from sidespin.
+      m.rotation.x -= ball.vz * dt * 1.6;
+      m.rotation.z += (ball.vx * 0.6 + ball.sx * 18) * dt;
+    }
+    if (shadowRef.current) {
+      // Blob shadow on the table: reads where the ball will land.
+      const s = shadowRef.current;
+      const over =
+        Math.abs(ball.x) < HALF_W + 0.3 && Math.abs(ball.z) < HALF_L + 0.3;
+      s.visible = over && ball.y > 0;
+      s.position.set(ball.x, 0.012, ball.z);
+      const k = Math.max(0.35, 1 - ball.y * 0.09);
+      s.scale.set(k, k, 1);
+      s.material.opacity = 0.18 + 0.32 * Math.max(0, 1 - ball.y * 0.12);
+    }
+    if (ringRef.current) {
+      ringAge.current += dt;
+      const t = Math.min(ringAge.current / RING_LIFE, 1);
+      const r = ringRef.current;
+      r.visible = t < 1;
+      const k = 0.4 + t * 1.6;
+      r.scale.set(k, k, 1);
+      r.material.opacity = (1 - t) * 0.7;
+    }
     if (p1Ref.current) {
       p1Ref.current.position.set(paddles[0].x, 1.1, paddles[0].z);
       p1Ref.current.rotation.z = -paddles[0].vx * 0.012;
@@ -198,7 +257,7 @@ export default function MatchScene() {
 
   return (
     <group>
-      <Table theme={theme} />
+      <Table theme={theme} netHeight={netHeight} />
       <group ref={p1Ref} position={[0, 1.1, TABLE.PADDLE_Z]}>
         <PaddleMesh color="#c8452f" />
       </group>
@@ -217,6 +276,16 @@ export default function MatchScene() {
           <meshStandardMaterial color="#f6f2e8" roughness={0.35} />
         </mesh>
       </Trail>
+      {/* Landing shadow */}
+      <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]}>
+        <circleGeometry args={[BALL_RADIUS * 1.4, 20]} />
+        <meshBasicMaterial color="#05070f" transparent opacity={0.4} depthWrite={false} />
+      </mesh>
+      {/* Impact ring */}
+      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+        <ringGeometry args={[0.32, 0.42, 28]} />
+        <meshBasicMaterial color={theme.accent} transparent opacity={0.6} depthWrite={false} />
+      </mesh>
       {/* Grounding: faint floor far below the table */}
       <mesh position={[0, -5.2, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[160, 160]} />

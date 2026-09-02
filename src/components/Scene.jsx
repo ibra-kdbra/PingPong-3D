@@ -1,18 +1,19 @@
 import { Physics } from "@react-three/cannon";
 import { useFrame } from "@react-three/fiber";
 import { Sparkles, Stars } from "@react-three/drei";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { MathUtils } from "three";
 import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
+import { fx } from "../game/fx.js";
 import Arena from "./Arena.jsx";
 import Ball from "./Ball.jsx";
 import MatchScene from "./MatchScene.jsx";
 import Paddle from "./Paddle.jsx";
 
-/** Subtle mouse parallax around a per-mode camera base. */
+/** Subtle mouse parallax around a per-mode camera base, plus impact shake. */
 function CameraRig({ base, look }) {
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const { camera, pointer } = state;
     camera.position.x = MathUtils.lerp(
       camera.position.x,
@@ -26,6 +27,12 @@ function CameraRig({ base, look }) {
     );
     camera.position.z = MathUtils.lerp(camera.position.z, base[2], 0.08);
     camera.lookAt(look[0], look[1], look[2]);
+    if (fx.shake > 0.001) {
+      const s = fx.shake * 0.25;
+      camera.position.x += (Math.random() - 0.5) * s;
+      camera.position.y += (Math.random() - 0.5) * s;
+      fx.shake *= Math.max(0, 1 - delta * 9);
+    }
   });
   return null;
 }
@@ -116,6 +123,10 @@ export default function Scene() {
   const matchKey = useStore((state) => state.matchKey);
   const stageIndex = useStore((state) => state.stage);
   const level = useLevel();
+  // Any match reset clears leftover shake.
+  useEffect(() => {
+    fx.shake = 0;
+  }, [matchKey]);
 
   const inMatch =
     mode !== "keepup" &&
