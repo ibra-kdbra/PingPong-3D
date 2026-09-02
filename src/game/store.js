@@ -1,10 +1,20 @@
 import { create } from "zustand";
 import { LEVELS, MAX_LEVEL } from "./levels.js";
-import { STAGES } from "./stages.js";
+import { STAGES, starsFor } from "./stages.js";
 import { audio } from "./audio.js";
 
 const BEST_KEY = "pingpong3d.best";
 const PROGRESS_KEY = "pingpong3d.adventure";
+const STARS_KEY = "pingpong3d.stars";
+
+const loadStars = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STARS_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
 
 const load = (key, fallback = 0) => {
   try {
@@ -80,6 +90,15 @@ export const useStore = create((set, get) => {
     matchKey: 0,
     /** 0 = in play; 1/2 = winner once the match ends. */
     matchWinner: 0,
+    /** Star ratings per beaten adventure stage index. */
+    stars: loadStars(),
+    /** Stars earned by the match that just ended. */
+    matchStars: 0,
+    /** Strikes in the current rally / longest rally this match. */
+    rally: 0,
+    bestRally: 0,
+    /** Opponent's one-liner after a point ({ id, text }). */
+    quote: null,
 
     banner: null,
     muted: false,
@@ -193,13 +212,19 @@ export const useStore = create((set, get) => {
           stage: index,
           match: { p1: 0, p2: 0, server: 1 },
           matchWinner: 0,
+          matchStars: 0,
+          rally: 0,
+          bestRally: 0,
+          quote: null,
           matchKey: s.matchKey + 1,
           banner: null,
         }));
         const stage = STAGES[index];
         showBanner(
           `${stage.name} — vs ${stage.opponent}`,
-          `First to ${stage.winScore}`
+          stage.modifier
+            ? `${stage.modifier} · first to ${stage.winScore}`
+            : `First to ${stage.winScore}`
         );
       },
 
@@ -210,10 +235,24 @@ export const useStore = create((set, get) => {
           phase: "playing",
           match: { p1: 0, p2: 0, server: 1 },
           matchWinner: 0,
+          matchStars: 0,
+          rally: 0,
+          bestRally: 0,
+          quote: null,
           matchKey: s.matchKey + 1,
           banner: null,
         }));
         showBanner("Two players", "P1 mouse · P2 A/D + W/S — first to 7");
+      },
+
+      /** Live rally length, for the HUD counter. */
+      rallyTick(hits) {
+        set({ rally: hits });
+      },
+
+      /** Short in-play callout (net cord, smash…). */
+      flash(title, sub = "") {
+        showBanner(title, sub, 900);
       },
 
       /** Mirror a point from the engine into UI state. */
@@ -228,6 +267,8 @@ export const useStore = create((set, get) => {
           missed: "Clean winner",
           "double-bounce": "Double bounce",
         };
+        const stage = state.mode === "adventure" ? STAGES[state.stage] : null;
+        const winScore = stage ? stage.winScore : 7;
         const who =
           state.mode === "versus"
             ? p1Win
@@ -235,24 +276,59 @@ export const useStore = create((set, get) => {
               : "Point — Player 2"
             : p1Win
               ? "Point — You"
-              : `Point — ${STAGES[state.stage].opponent}`;
-        showBanner(who, labels[reason] ?? "", 1400);
-        set({ match: { p1: scores[0], p2: scores[1], server } });
+              : `Point — ${stage.opponent}`;
+        const [p1, p2] = scores;
+        const leaderAtMatchPoint =
+          (p1 === winScore - 1 && p2 < winScore - 1) ||
+          (p2 === winScore - 1 && p1 < winScore - 1);
+        const deuceLike = p1 === winScore - 1 && p2 === winScore - 1;
+        let sub = labels[reason] ?? "";
+        if (deuceLike) sub = `${sub} · Next point wins`;
+        else if (leaderAtMatchPoint) sub = `${sub} · Match point`;
+        showBanner(who, sub, 1400);
+
+        // Opponent personality: a one-liner after each point.
+        let quote = null;
+        if (stage?.lines) {
+          const pool = p1Win ? stage.lines.lose : stage.lines.win;
+          const text = pool[Math.floor(Math.random() * pool.length)];
+          quote = { id: ++bannerSeq, text };
+          const id = quote.id;
+          setTimeout(() => {
+            if (get().quote?.id === id) set({ quote: null });
+          }, 2200);
+        }
+        set({ match: { p1, p2, server }, rally: 0, quote });
       },
 
-      matchOver(winner) {
+      matchOver(winner, bestRally = 0) {
         const state = get();
         if (state.phase !== "playing") return;
         const p1Win = winner === 1;
         if (state.mode === "adventure" && p1Win) {
           audio.matchWin();
+          const stage = STAGES[state.stage];
           const unlocked = Math.max(state.unlocked, state.stage + 1);
           save(PROGRESS_KEY, unlocked);
-          set({ phase: "matchover", matchWinner: winner, unlocked });
+          const earned = starsFor(stage, state.match.p1, state.match.p2);
+          const stars = { ...state.stars };
+          if (earned > (stars[state.stage] || 0)) {
+            stars[state.stage] = earned;
+            save(STARS_KEY, JSON.stringify(stars));
+          }
+          set({
+            phase: "matchover",
+            matchWinner: winner,
+            unlocked,
+            stars,
+            matchStars: earned,
+            bestRally,
+            quote: null,
+          });
         } else {
           if (p1Win) audio.matchWin();
           else audio.gameOver();
-          set({ phase: "matchover", matchWinner: winner });
+          set({ phase: "matchover", matchWinner: winner, bestRally, quote: null });
         }
       },
 
