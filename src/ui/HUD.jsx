@@ -86,9 +86,12 @@ function MatchHUD() {
   const mode = useStore((state) => state.mode);
   const stageIndex = useStore((state) => state.stage);
   const match = useStore((state) => state.match);
+  const online = useStore((state) => state.online);
   const stage = mode === "adventure" ? STAGES[stageIndex] : null;
-  const p1Name = mode === "versus" ? "P1" : "You";
-  const p2Name = mode === "versus" ? "P2" : stage.opponent;
+  const guest = mode === "online" && online.role === "guest";
+  const them = online.peerName || "Them";
+  const p1Name = mode === "versus" ? "P1" : mode === "online" ? (guest ? them : "You") : "You";
+  const p2Name = mode === "versus" ? "P2" : mode === "online" ? (guest ? "You" : them) : stage.opponent;
 
   return (
     <div className="hud-match">
@@ -115,8 +118,13 @@ function MatchHUD() {
           {p2Name}
         </span>
       </div>
+      {mode === "online" && (
+        <div className="hud-controls-hint">
+          {online.latency > 0 ? `${Math.round(online.latency * 1000)} ms` : "connected"} · click+swing curve · right-click loop · Space chop
+        </div>
+      )}
       {mode === "versus" && (
-        <div className="hud-controls-hint">P1 mouse · P2 A/D move, W/S aim</div>
+        <div className="hud-controls-hint">P1 mouse · click+swing curve · right-click loop · Space chop &nbsp;|&nbsp; P2 A/D · W/S aim · Shift curve · E loop · Q chop</div>
       )}
       <OpponentQuote />
       <RallyCounter />
