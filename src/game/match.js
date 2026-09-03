@@ -51,6 +51,14 @@ const MAX_BALL_SPEED = 60;
 const MAGNUS = 0.5;
 /** Net-cord band above the fault line where the ball trickles over. */
 const NET_CORD_BAND = BALL_RADIUS * 1.4;
+/** Extra downward pull per unit topspin per unit forward speed (loops dip). */
+const DIP = 0.35;
+/** Fraction of a deliberate brush shot's curve the striker compensates for:
+ *  the rest is real displacement — the ball bends past where it was aimed. */
+const BRUSH_COMPENSATION = 0.35;
+
+/** Shot techniques (input.pNtech). */
+export const TECH = { DRIVE: 0, CHOP: 1, LOOP: 2 };
 
 /** Gaussian-ish noise without allocations (sum of 3 uniforms). */
 function noise(rng, scale) {
@@ -113,8 +121,8 @@ export function createMatch({
   const shot = { vx: 0, vy: 0, vz: 0 };
   const aiState = { targetX: 0, reactTimer: 0, committed: false };
 
-  function emit(type, a = 0, b = 0) {
-    state.events.push({ type, a, b });
+  function emit(type, a = 0, b = 0, c = 0) {
+    state.events.push({ type, a, b, c });
   }
 
   function sideOf(z) {
@@ -126,11 +134,11 @@ export function createMatch({
   }
 
   /** Solve a ballistic shot from the ball landing at (tx, 0, tz) in time T. */
-  function solveShot(tx, tz, T) {
+  function solveShot(tx, tz, T, g = gravity) {
     const b = state.ball;
     shot.vx = (tx - b.x) / T;
     shot.vz = (tz - b.z) / T;
-    shot.vy = (BALL_RADIUS - b.y - 0.5 * gravity * T * T) / T;
+    shot.vy = (BALL_RADIUS - b.y - 0.5 * g * T * T) / T;
   }
 
   function placeForServe() {
@@ -184,41 +192,55 @@ export function createMatch({
   /**
    * Strike the ball for `player`.
    *  aim:     -1 (flat, fast drive) .. 1 (high, slow lob)
-   *  steer:   sideways swing influence on placement and sidespin
+   *  steer:   sideways swing influence on placement (and a little spin)
    *  power:   0..1 swing speed — shortens flight time (smash)
    *  error:   accuracy noise scale (0 = perfect)
    *  targetX: explicit x placement (AI shot selection); null derives it
    *           from contact point + steer
-   * Sidespin curves the flight; the solver pre-compensates so the ball
-   * still lands where intended — the curve itself is what fools a
-   * receiver that reads it linearly.
+   *  spin:    -1..1 deliberate sidespin (a "brush" shot). Incidental spin
+   *           from steer is fully pre-compensated so the ball lands where
+   *           aimed; a brush shot is only partly compensated, so it bends
+   *           visibly past the aim — that displacement is the technique.
+   *  tech:    TECH.DRIVE | TECH.CHOP (floating backspin that dies on the
+   *           bounce) | TECH.LOOP (heavy topspin: high arc, dips, kicks)
    */
-  function strike(player, aim, steer, power, error, targetX = null) {
+  function strike(player, { aim, steer, power, error, targetX = null, spin = 0, tech = 0 }) {
     const b = state.ball;
     const dir = player === 1 ? -1 : 1;
     const lob = (aim + 1) / 2; // 0..1
-    const T = (0.55 + lob * 0.45) * (1 - 0.3 * power);
-    const depth = 0.4 + (1 - lob) * 0.5; // drives go deep, lobs drop short
-    const tz =
-      dir * TABLE.LENGTH * 0.5 * Math.min(depth, 0.94) +
-      noise(rng, error * (1 + state.rallyHits * 0.22) * 2);
+    let T = (0.55 + lob * 0.45) * (1 - 0.3 * power);
+    let depth = 0.4 + (1 - lob) * 0.5; // drives go deep, lobs drop short
+    let ts = clamp(-aim * (0.55 + 0.45 * power), -1, 1);
+    let sx = clamp(steer * 0.45, -1, 1);
+    let compensation = 1;
+    if (tech === TECH.CHOP) {
+      // Slow, high, short and loaded with backspin.
+      T *= 1.4;
+      depth = 0.35 + (1 - lob) * 0.35;
+      ts = -1;
+    } else if (tech === TECH.LOOP) {
+      // Heavy topspin: arcs higher, dips late, kicks through the bounce.
+      T *= 0.92;
+      depth = Math.min(depth + 0.1, 0.94);
+      ts = 1;
+    }
+    if (spin !== 0) {
+      sx = clamp(sx + spin * 0.9, -1, 1);
+      compensation = BRUSH_COMPENSATION;
+    }
     const pressure = error * (1 + state.rallyHits * 0.22);
-    let tx =
-      (targetX !== null ? targetX : b.x * 0.3 + steer * 1.6) +
-      noise(rng, pressure);
+    const tz = dir * TABLE.LENGTH * 0.5 * Math.min(depth, 0.94) + noise(rng, pressure * 2);
+    let tx = (targetX !== null ? targetX : b.x * 0.3 + steer * 1.6) + noise(rng, pressure);
     const margin = TABLE.WIDTH / 2 - 0.35;
     // Even a mishit aims near the table; error can still push it out.
     tx = clamp(tx, -margin - 1.2, margin + 1.2);
 
-    // Spin: sideways swing imparts sidespin; drives carry topspin, lobs
-    // backspin. Aggressive players (high power) spin harder.
-    const sx = clamp(steer * 0.45, -1, 1);
-    const ts = clamp(-aim * (0.55 + 0.45 * power), -1, 1);
-
+    // First pass for the forward speed, then re-solve with the topspin dip
+    // folded into gravity and the Magnus curve (partly) pre-compensated.
     solveShot(tx, tz, T);
-    // Pre-compensate the Magnus curve so the intended landing holds.
+    const dipG = gravity - DIP * Math.max(ts, 0) * Math.abs(shot.vz);
     const curve = 0.5 * MAGNUS * sx * Math.abs(shot.vz) * T * T;
-    solveShot(tx - curve, tz, T);
+    solveShot(tx - curve * compensation, tz, T, dipG);
 
     b.vx = shot.vx;
     b.vy = shot.vy;
@@ -229,7 +251,7 @@ export function createMatch({
     state.bounces = 0;
     state.rallyHits += 1;
     if (state.rallyHits > state.bestRally) state.bestRally = state.rallyHits;
-    emit("hit", player, Math.hypot(shot.vx, shot.vy, shot.vz) * (1 + power));
+    emit("hit", player, Math.hypot(shot.vx, shot.vy, shot.vz) * (1 + power), tech);
   }
 
   /**
@@ -273,8 +295,9 @@ export function createMatch({
 
   /**
    * Advance the simulation.
-   * input: { p1x, p1vx, p1aim, p2x, p2vx, p2aim } — p2 fields ignored
-   * when an AI is configured. Events accumulate in state.events; the
+   * input: { p1x, p1vx, p1aim, p1spin, p1tech, p2x, p2vx, p2aim, p2spin,
+   * p2tech } — p2 fields ignored when an AI is configured. spin is a
+   * deliberate -1..1 sidespin (brush); tech is a TECH value. Events accumulate in state.events; the
    * caller consumes and clears them via drainEvents().
    */
   function step(dt, input) {
@@ -309,7 +332,7 @@ export function createMatch({
 
     // --- rally physics ---
     const prevZ = b.z;
-    b.vy += gravity * dt;
+    b.vy += (gravity - DIP * Math.max(b.ts, 0) * Math.abs(b.vz)) * dt;
     b.vx += (MAGNUS * b.sx * Math.abs(b.vz) + wind) * dt;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
@@ -401,23 +424,41 @@ export function createMatch({
       state.lastStretch = stretch;
       if (player === 2 && ai) {
         // AI shot selection: place across the width, wider when
-        // aggressive; sidespin proportional to its own guile.
+        // aggressive; sidespin from its own guile; a stretched contact
+        // becomes a defensive chop, a confident one may be a loop.
         const spread = (TABLE.WIDTH / 2 - 0.5) * (0.45 + ai.aggression * 0.5);
         const guile = (rng() * 2 - 1) * ai.spin;
-        strike(
-          2,
-          ai.aim(state, rng),
-          guile,
-          ai.aggression * rng() * (1 - 0.6 * stretch),
-          ai.error * (1 + 2 * stretch * stretch) + 0.4 * stretch * stretch,
-          (rng() * 2 - 1) * spread
-        );
+        const tech =
+          stretch > 0.6
+            ? TECH.CHOP
+            : rng() < ai.aggression * 0.5
+              ? TECH.LOOP
+              : TECH.DRIVE;
+        strike(2, {
+          aim: ai.aim(state, rng),
+          steer: 0,
+          spin: Math.abs(guile) > 0.45 ? guile : 0,
+          tech,
+          power: ai.aggression * rng() * (1 - 0.6 * stretch),
+          error: ai.error * (1 + 2 * stretch * stretch) + 0.4 * stretch * stretch,
+          targetX: (rng() * 2 - 1) * spread,
+        });
       } else {
-        const aim = player === 1 ? input.p1aim : input.p2aim;
-        const vx = player === 1 ? input.p1vx : input.p2vx;
-        const steer = vx * 0.05;
-        const power = clamp(Math.abs(vx) / 30, 0, 1) * (1 - 0.5 * stretch);
-        strike(player, aim, steer, power, 0.5 * stretch * stretch);
+        const one = player === 1;
+        const aim = one ? input.p1aim : input.p2aim;
+        const vx = one ? input.p1vx : input.p2vx;
+        const spin = clamp((one ? input.p1spin : input.p2spin) || 0, -1, 1);
+        const tech = (one ? input.p1tech : input.p2tech) || 0;
+        strike(player, {
+          aim,
+          steer: vx * 0.05,
+          spin,
+          tech,
+          power: clamp(Math.abs(vx) / 30, 0, 1) * (1 - 0.5 * stretch),
+          // A small base error lets rally pressure build even for humans,
+          // so two parked paddles can't trade returns forever.
+          error: 0.1 + 0.5 * stretch * stretch,
+        });
       }
       return;
     }
