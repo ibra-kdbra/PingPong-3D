@@ -24,7 +24,9 @@ function useKeyboardShortcuts() {
 export default function Experience() {
   useKeyboardShortcuts();
   const quality = useStore((state) => state.quality);
+  const phase = useStore((state) => state.phase);
   const { degradeQuality } = useStore((state) => state.api);
+  const inGame = phase === "playing" || phase === "paused";
 
   return (
     <>
@@ -42,7 +44,7 @@ export default function Experience() {
       <HUD />
       <Screens />
       <a
-        className="github"
+        className={inGame ? "github github-play" : "github"}
         href="https://github.com/ibra-kdbra/PingPong-3D"
         target="_blank"
         rel="noreferrer"

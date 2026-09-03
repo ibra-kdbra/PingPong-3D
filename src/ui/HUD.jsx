@@ -1,4 +1,5 @@
 import { MAX_LEVEL } from "../game/levels.js";
+import { useEffect, useState } from "react";
 import { STAGES } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
 import { PauseIcon, PlayIcon, SoundIcon, MutedIcon } from "./icons.jsx";
@@ -101,6 +102,11 @@ function MatchHUD() {
           {stage.modifier && <span className="tag">{stage.modifier}</span>}
         </div>
       )}
+      {mode === "online" && (
+        <div className="hud-stage">
+          {online.latency > 0 ? `${Math.round(online.latency * 1000)} ms` : "connected"}
+        </div>
+      )}
       <div className="hud-board">
         <span
           className={match.server === 1 ? "hud-name serving" : "hud-name"}
@@ -118,16 +124,61 @@ function MatchHUD() {
           {p2Name}
         </span>
       </div>
-      {mode === "online" && (
-        <div className="hud-controls-hint">
-          {online.latency > 0 ? `${Math.round(online.latency * 1000)} ms` : "connected"} · click+swing curve · right-click loop · Space chop
-        </div>
-      )}
-      {mode === "versus" && (
-        <div className="hud-controls-hint">P1 mouse · click+swing curve · right-click loop · Space chop &nbsp;|&nbsp; P2 A/D · W/S aim · Shift curve · E loop · Q chop</div>
-      )}
       <OpponentQuote />
       <RallyCounter />
+    </div>
+  );
+}
+
+
+/**
+ * Control legend: shown for the first seconds of a match, then hidden;
+ * H brings it back. Keeps the HUD quiet during play.
+ */
+function Legend({ mode }) {
+  const matchKey = useStore((state) => state.matchKey);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    setVisible(true);
+    const t = setTimeout(() => setVisible(false), 7000);
+    const onKey = (e) => {
+      if (e.key.toLowerCase() === "h") setVisible((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [matchKey]);
+  if (!visible) return null;
+  const p1 = (
+    <div className="legend-row">
+      <span className="legend-tag">{mode === "versus" ? "P1" : "You"}</span>
+      <span>mouse moves</span>
+      <span>fast swing smashes</span>
+      <span>click + swing curves</span>
+      <span>right-click loop</span>
+      <span><kbd>Space</kbd> chop</span>
+    </div>
+  );
+  return (
+    <div className="legend" aria-label="Controls">
+      {p1}
+      {mode === "versus" && (
+        <div className="legend-row">
+          <span className="legend-tag">P2</span>
+          <span><kbd>A</kbd><kbd>D</kbd> move</span>
+          <span><kbd>W</kbd><kbd>S</kbd> aim</span>
+          <span><kbd>Shift</kbd> curve</span>
+          <span><kbd>E</kbd> loop</span>
+          <span><kbd>Q</kbd> chop</span>
+        </div>
+      )}
+      <div className="legend-row legend-quiet">
+        <span><kbd>H</kbd> hide</span>
+        <span><kbd>P</kbd> pause</span>
+        <span><kbd>M</kbd> mute</span>
+      </div>
     </div>
   );
 }
@@ -154,6 +205,7 @@ export default function HUD() {
   return (
     <>
       {inGame && (mode === "keepup" ? <KeepUpHUD /> : <MatchHUD />)}
+      {phase === "playing" && mode !== "keepup" && <Legend mode={mode} />}
       {inGame && (
         <div className="hud-buttons">
           <button

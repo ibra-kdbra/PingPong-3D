@@ -190,7 +190,8 @@ button {
 }
 
 .hud-board {
-  display: flex;
+  display: inline-flex;
+  width: fit-content;
   align-items: baseline;
   gap: 14px;
   padding: 8px 18px;
@@ -309,12 +310,48 @@ button {
   color: var(--ink-mute);
 }
 
-.hud-controls-hint {
-  margin-top: 6px;
-  font-size: 0.75em;
-  letter-spacing: 0.06em;
+.legend {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(13, 16, 32, 0.78);
+  border: 1px solid var(--border);
+  font-size: 0.78em;
   color: var(--ink-mute);
-  text-shadow: 0 1px 3px rgba(6, 8, 18, 0.6);
+  pointer-events: none;
+  animation: panel-in 0.3s var(--ease-out);
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+}
+
+.legend-row kbd {
+  font-size: 0.9em;
+  padding: 0 5px;
+  min-width: 18px;
+  margin-right: 3px;
+}
+
+.legend-tag {
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 28px;
+}
+
+.legend-quiet {
+  opacity: 0.7;
 }
 
 .hud-buttons {
@@ -438,11 +475,6 @@ button {
   color: var(--ink-mute);
 }
 
-.howto-quiet {
-  margin-top: -2px;
-  opacity: 0.8;
-}
-
 .tagline {
   margin: -4px 0 6px;
   color: var(--ink-mute);
@@ -530,6 +562,10 @@ button {
   font-size: 0.82em;
   font-weight: 400;
   opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .btn-mode .mode-desc {
@@ -537,11 +573,12 @@ button {
 }
 
 .howto {
-  display: flex;
-  gap: 18px;
-  margin-top: 4px;
-  font-size: 0.82em;
+  margin: 4px 0 0;
+  max-width: 34ch;
+  font-size: 0.84em;
+  line-height: 1.45;
   color: var(--ink-mute);
+  text-wrap: balance;
 }
 
 kbd {
@@ -768,9 +805,13 @@ kbd {
   .hud-score-value { font-size: 1.9em; }
   .hud-level { width: 40vw; }
   .hud-points { font-size: 1.5em; }
-  .panel { padding: 24px 20px; }
-  .howto { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .panel { padding: 22px 18px; gap: 10px; }
+  .panel-menu .title { font-size: 2em; }
+  .mode-list .btn { padding: 10px 14px; }
+  .legend { max-width: 92vw; font-size: 0.72em; bottom: 14px; padding: 8px 10px; }
+  .legend-row:not(:first-child) { display: none; }
   .gh-owner { display: none; }
+  .github-play { display: none; }
 }
 
 /* ---------- Online lobby ---------- */

@@ -40,19 +40,19 @@ function MenuScreen() {
             <span className="mode-name">Adventure</span>
             <span className="mode-desc">
               {beatenAll
-                ? `All ${STAGES.length} opponents beaten · ${totalStars}/${MAX_STARS} stars`
+                ? `Complete · ${totalStars}/${MAX_STARS} stars`
                 : totalStars > 0
                   ? `Stage ${Math.min(unlocked, STAGES.length - 1) + 1} of ${STAGES.length} · ${totalStars}/${MAX_STARS} stars`
-                  : `Beat ${STAGES.length} opponents across wind, low gravity and more`}
+                  : `${STAGES.length} opponents, ${STAGES.length} arenas`}
             </span>
           </button>
           <button className="btn btn-mode" onClick={openOnline}>
             <span className="mode-name">Play online</span>
-            <span className="mode-desc">Invite a friend with a room code</span>
+            <span className="mode-desc">A friend, a room code</span>
           </button>
           <button className="btn btn-mode" onClick={startVersus}>
             <span className="mode-name">Two players</span>
-            <span className="mode-desc">Mouse vs keyboard, one screen</span>
+            <span className="mode-desc">Mouse vs keyboard</span>
           </button>
           <button className="btn btn-mode" onClick={startKeepUp}>
             <span className="mode-name">Keep-up</span>
@@ -62,15 +62,10 @@ function MenuScreen() {
           </button>
         </div>
 
-        <div className="howto">
-          <span>Swing fast to smash</span>
-          <span>Hold click + swing to curve</span>
-          <span>Right-click loop · <kbd>Space</kbd> chop</span>
-        </div>
-        <div className="howto howto-quiet">
-          <span><kbd>P</kbd> pause</span>
-          <span><kbd>M</kbd> mute</span>
-        </div>
+        <p className="howto">
+          Move with the mouse. Swing fast to smash, hold click while swinging
+          to curve.
+        </p>
       </div>
     </div>
   );
