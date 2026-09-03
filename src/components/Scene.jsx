@@ -12,12 +12,12 @@ import MatchScene from "./MatchScene.jsx";
 import Paddle from "./Paddle.jsx";
 
 /** Subtle mouse parallax around a per-mode camera base, plus impact shake. */
-function CameraRig({ base, look }) {
+function CameraRig({ base, look, mirror = false }) {
   useFrame((state, delta) => {
     const { camera, pointer } = state;
     camera.position.x = MathUtils.lerp(
       camera.position.x,
-      base[0] + pointer.x * 1.2,
+      base[0] + pointer.x * (mirror ? -1.2 : 1.2),
       0.04
     );
     camera.position.y = MathUtils.lerp(
@@ -131,6 +131,7 @@ export default function Scene() {
   const inMatch =
     mode !== "keepup" &&
     (phase === "playing" || phase === "paused" || phase === "matchover");
+  const guestView = mode === "online" && useStore.getState().online.role === "guest";
   const theme = inMatch
     ? mode === "adventure"
       ? STAGES[stageIndex].theme
@@ -142,8 +143,10 @@ export default function Scene() {
       <Environment theme={theme} accentLight={theme.accent} />
       {inMatch ? (
         <>
-          <CameraRig base={[0, 7.5, 16.5]} look={[0, 0.5, -2]} />
-          <MatchScene key={matchKey} />
+          <CameraRig base={[0, 7.5, 16.5]} look={[0, 0.5, -2]} mirror={guestView} />
+          <group rotation={[0, guestView ? Math.PI : 0, 0]}>
+            <MatchScene key={matchKey} />
+          </group>
         </>
       ) : (
         <>

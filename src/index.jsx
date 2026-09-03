@@ -5,7 +5,16 @@ import Experience from "./Experience.jsx";
 import { useStore } from "./game/store.js";
 
 // Exposed for debugging / automated tests (dev builds only).
-if (import.meta.env.DEV) window.__game = useStore;
+if (import.meta.env.DEV) {
+  window.__game = useStore;
+  Promise.all([
+    import("./net/transport.js"),
+    import("./net/session.js"),
+    import("./game/match.js"),
+  ]).then(([transport, session, match]) => {
+    window.__net = { ...transport, ...session, createMatch: match.createMatch };
+  });
+}
 
 const root = ReactDOM.createRoot(document.querySelector("#root"));
 
