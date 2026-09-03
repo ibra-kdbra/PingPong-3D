@@ -1,8 +1,13 @@
+<p align="center"><img src="public/images/icon.svg" width="96" alt="PingPong 3D"></p>
+
 # PingPong 3D
 
 A fast, physics-driven 3D table-tennis game built with **React Three Fiber**.
-Three ways to play: an eight-stage **Adventure** against AI opponents, local
-**two-player** on one screen, and the original **Keep-up** survival mode.
+Four ways to play: a twelve-stage **Adventure** against AI opponents,
+**online** against a friend, local **two-player** on one screen, and the
+original **Keep-up** survival mode.
+
+**Play:** https://ibra-kdbra.github.io/PingPong-3D/
 
 ## Game modes
 
@@ -17,6 +22,14 @@ that bounces like a trampoline, a frozen one that barely bounces at all.
 Every win is rated one to three stars (a shutout earns three), opponents
 talk back after points, and progress is saved locally.
 
+### Online
+Create a room, send the six-letter code to a friend, and play a full match
+peer-to-peer over WebRTC — no game server. The host runs the authoritative
+physics; the guest sees a mirrored view with its own paddle predicted
+locally and the ball smoothed between 30 Hz snapshots. Rematch is a
+two-way handshake; a dropped connection ends the match cleanly. Design
+notes: [NETPLAY.md](NETPLAY.md).
+
 ### Two players
 Same screen, same table. Player 1 steers with the mouse (height aims the
 shot: high lobs, low drives). Player 2 moves with `A`/`D` and aims with
@@ -26,6 +39,20 @@ shot: high lobs, low drives). Player 2 moves with `A`/`D` and aims with
 The solo survival mode: keep the ball on your paddle through 8 levels of
 rising gravity, wind, and shrinking balls. Combo multipliers, 3 lives,
 persistent best score.
+
+## Techniques
+
+| Input | Shot |
+| --- | --- |
+| Mouse height | Lob (high) … drive (low) |
+| Fast swing | Smash — shorter, harder flight |
+| **Hold left button while swinging sideways** | **Brush**: sidespin, the ball visibly curves past your aim |
+| **Right button** | **Loop**: heavy topspin — arcs high, dips late, kicks off the table |
+| **Space** | **Chop**: floating backspin that dies on the bounce |
+
+Player 2 on the keyboard: `A`/`D` move, `W`/`S` aim, `Shift` brush,
+`E` loop, `Q` chop. Contact quality matters: a ball met at the edge of
+your reach is a weaker, wilder shot — for you and for the AI.
 
 ## The match engine
 
@@ -39,11 +66,14 @@ Matches run on a custom, dependency-free table-tennis engine
   to a target point, so net clips and long balls emerge from physics, not
   scripts. Mouse height picks lob vs drive; swing speed adds power (smash)
   and steers placement.
-- **Spin** — a sideways swing imparts sidespin and the ball curves in
-  flight (Magnus effect); the solver pre-compensates so it lands where you
-  aimed, but an opponent who reads the flight linearly is fooled. Drives
-  carry topspin that kicks low and fast off the table; lobs carry backspin
-  that sits up and dies. Stronger opponents read spin — and use it.
+- **Spin** — sidespin curves the flight (Magnus effect). Incidental spin
+  from a swing is pre-compensated so the ball lands where aimed; a
+  deliberate brush is only partly compensated, so it bends past the aim.
+  Topspin dips in flight and kicks low and fast off the table; backspin
+  sits up and dies. The AI reads a shot once and commits like a real
+  player — stronger opponents anticipate the curve (and use it).
+- **Fixed 120 Hz step** — identical physics at any frame rate, and the
+  basis for online play.
 - **Net cord** — a ball that clips the top of the net loses its pace and
   trickles over, still in play; below the cord it's a fault.
 - **Stage physics** — gravity, wind, net height and table bounce are all
@@ -79,7 +109,8 @@ your opponent after each point.
 | Input | Action |
 | --- | --- |
 | Mouse / touch | Move paddle · mouse height aims lob/drive (match modes) |
-| `A` `D` / `W` `S` | Player 2 move / aim (two-player mode) |
+| Left button + swing / right button / `Space` | Brush (curve) / loop / chop |
+| `A` `D` / `W` `S` / `Shift` `E` `Q` | Player 2 move / aim / brush, loop, chop |
 | `P` or `Esc` | Pause / resume |
 | `M` | Mute / unmute |
 
@@ -114,20 +145,29 @@ src/
 │   ├── Ball.jsx        # keep-up ball: trail, wind, stall detection
 │   ├── Arena.jsx       # keep-up bounds + themed floor
 │   └── Text.jsx        # 3D score digits on the keep-up paddle
+├── net/
+│   ├── transport.js  # PeerJS (WebRTC) transport + in-process loopback
+│   ├── session.js    # host-authoritative session: inputs, snapshots, events
+│   └── current.js    # the live connection (outside React state)
 ├── ui/
 │   ├── HUD.jsx       # mode-aware HUD: scoreboard, lives, combo, banners
-│   ├── Screens.jsx   # menu, adventure map, pause, game/match over
+│   ├── Screens.jsx   # menu, adventure map, online lobby, pause, endings
+│   ├── Logo.jsx      # the mark, inline SVG
 │   └── icons.jsx     # inline SVG icons
 └── Experience.jsx    # canvas + UI shell + keyboard shortcuts
 tests/
-├── match.test.mjs    # rules: serves, faults, rotation, match flow
-└── physics.test.mjs  # spin, net cord, bounces, modifiers, AI spin-reading
+├── match.test.mjs      # rules: serves, faults, rotation, match flow
+├── physics.test.mjs    # spin, net cord, bounces, modifiers, AI spin-reading
+├── techniques.test.mjs # brush curve, loop, chop, compensation
+└── net.test.mjs        # online: handshake, inputs, snapshots, smoothing, rematch
 ```
+
+Deploys: every push to `main` (and the preview branch) builds, tests and
+publishes to GitHub Pages via `.github/workflows/deploy.yml`.
 
 ## Roadmap
 
-- [ ] Online multiplayer (needs a small relay server — the engine is
-      deterministic and ready for lockstep)
+- [ ] Online: choose a stage/physics twist for the room; spectators
 - [ ] Tournament mode: best-of-3 sets, seeded brackets
 - [ ] Replays of match points
 - [ ] Gamepad support
