@@ -206,3 +206,44 @@ test("ICE configuration offers STUN plus more than one TURN relay", () => {
     }
   }
 });
+
+test("a peer that goes silent is reported lost instead of freezing", () => {
+  const { c, host, guest, match, flushAll } = setup();
+  let hostClosed = null;
+  let guestClosed = null;
+  host.on((type, why) => { if (type === "closed") hostClosed = why; });
+  guest.on((type, why) => { if (type === "closed") guestClosed = why; });
+
+  const events = new Array(16);
+  const input = idle();
+  // Normal traffic for a second: nobody is lost.
+  for (let i = 0; i < 120; i++) {
+    host.applyRemoteInput(input);
+    match.step(STEP, input);
+    host.afterStep(events, match.drainEvents(events));
+    guest.sendInput(0, 0, 0, 0, 0);
+    c.advance(STEP);
+    flushAll();
+    guest.update(STEP);
+  }
+  assert.equal(hostClosed, null, "healthy link stays open");
+  assert.equal(guestClosed, null);
+
+  // Now both sides go silent (tab closed, laptop shut, network died):
+  // keep stepping locally but deliver nothing in either direction.
+  for (let i = 0; i < 120 * 7; i++) {
+    host.afterStep(events, 0);
+    c.advance(STEP);
+    guest.update(STEP);
+  }
+  // Whichever side's timer trips first tears the link down and the other
+  // learns of it through the transport closing — both must end up out.
+  assert.ok(hostClosed, `host notices the guest is gone (${hostClosed})`);
+  assert.ok(guestClosed, `guest notices the host is gone (${guestClosed})`);
+  assert.ok(
+    [hostClosed, guestClosed].includes("timeout"),
+    "at least one side detected it by silence, not by a clean close"
+  );
+  assert.equal(host.state.connected, false);
+  assert.equal(guest.state.connected, false);
+});
