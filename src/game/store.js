@@ -84,6 +84,7 @@ export const useStore = create((set, get) => {
       status: "idle", // idle | creating | waiting | joining | connected | error | lost
       code: "",
       error: "",
+      note: "",
       peerName: "",
       latency: 0,
       rematch: { me: false, them: false },
@@ -482,10 +483,11 @@ export const useStore = create((set, get) => {
       async hostRoom() {
         const { api } = get();
         const code = makeRoomCode();
-        api.setOnline({ status: "creating", code, error: "", role: "host" });
+        api.setOnline({ status: "creating", code, error: "", note: "", role: "host" });
         try {
           const transport = await createPeerHost(code, {
-            onWaiting: () => api.setOnline({ status: "waiting" }),
+            onWaiting: () => api.setOnline({ status: "waiting", note: "" }),
+            onStatus: (note) => api.setOnline({ note }),
           });
           if (get().phase !== "online" || get().online.code !== code) {
             transport.close("cancelled");
@@ -493,7 +495,7 @@ export const useStore = create((set, get) => {
           }
           api._beginOnline("host", transport);
         } catch (e) {
-          api.setOnline({ status: "error", error: e.message || String(e), role: null });
+          api.setOnline({ status: "error", error: e.message || String(e), note: "", role: null });
         }
       },
 
@@ -504,17 +506,26 @@ export const useStore = create((set, get) => {
           api.setOnline({ status: "error", error: "Enter the 6-letter room code." });
           return;
         }
-        api.setOnline({ status: "joining", code: clean, error: "", role: "guest" });
+        api.setOnline({ status: "joining", code: clean, error: "", note: "", role: "guest" });
         try {
-          const transport = await createPeerGuest(clean);
+          const transport = await createPeerGuest(clean, {
+            onStatus: (note) => api.setOnline({ note }),
+          });
           if (get().phase !== "online") {
             transport.close("cancelled");
             return;
           }
           api._beginOnline("guest", transport);
         } catch (e) {
-          api.setOnline({ status: "error", error: e.message || String(e), role: null });
+          api.setOnline({ status: "error", error: e.message || String(e), note: "", role: null });
         }
+      },
+
+      /** Re-run whichever attempt just failed. */
+      retryOnline() {
+        const { online, api } = get();
+        if (online.role === "guest" || (!online.role && online.code)) api.joinRoom(online.code);
+        else api.hostRoom();
       },
 
       onlineRematch() {
