@@ -76,6 +76,30 @@ sides; scores are shown from each player's own perspective.
   keep the HUD's latency badge honest.
 - **Pause** is host-only and mirrored to the guest as a phase in `snap`.
 
+## Getting a connection (ICE)
+
+WebRTC only carries data once ICE finds a network path between the two
+browsers. Three outcomes, in order of preference:
+
+1. **Direct, same network** — host candidates, always works.
+2. **Direct across the internet** — STUN discovers each side's public
+   address and they punch through their NATs. Works for most home
+   connections.
+3. **Relayed** — when NAT is symmetric (common on mobile data and
+   corporate Wi-Fi) or UDP is blocked, traffic must go through a TURN
+   relay. Without a working relay ICE fails, which PeerJS reports as
+   *"Negotiation of connection to … failed"*.
+
+PeerJS ships one STUN server plus its own free TURN relays, which are
+heavily rate-limited. We therefore configure several STUN servers and
+more than one TURN relay, including TLS on port 443 for networks that
+only allow HTTPS (`ICE_SERVERS` in `src/net/transport.js`).
+
+Free relays are still best-effort. For a guaranteed connection, run your
+own `coturn` and put its URL and credentials in `ICE_SERVERS`; the same
+applies to the signalling server, where a self-hosted `peerjs-server`
+replaces the public one via `PEER_OPTIONS`.
+
 ## Security posture
 
 The host can cheat (it runs the engine). For a casual friend-to-friend
