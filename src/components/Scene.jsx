@@ -1,22 +1,23 @@
 import { Physics } from "@react-three/cannon";
 import { useFrame } from "@react-three/fiber";
 import { Sparkles, Stars } from "@react-three/drei";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { MathUtils } from "three";
 import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
+import { fx } from "../game/fx.js";
 import Arena from "./Arena.jsx";
 import Ball from "./Ball.jsx";
 import MatchScene from "./MatchScene.jsx";
 import Paddle from "./Paddle.jsx";
 
-/** Subtle mouse parallax around a per-mode camera base. */
-function CameraRig({ base, look }) {
-  useFrame((state) => {
+/** Subtle mouse parallax around a per-mode camera base, plus impact shake. */
+function CameraRig({ base, look, mirror = false }) {
+  useFrame((state, delta) => {
     const { camera, pointer } = state;
     camera.position.x = MathUtils.lerp(
       camera.position.x,
-      base[0] + pointer.x * 1.2,
+      base[0] + pointer.x * (mirror ? -1.2 : 1.2),
       0.04
     );
     camera.position.y = MathUtils.lerp(
@@ -26,6 +27,12 @@ function CameraRig({ base, look }) {
     );
     camera.position.z = MathUtils.lerp(camera.position.z, base[2], 0.08);
     camera.lookAt(look[0], look[1], look[2]);
+    if (fx.shake > 0.001) {
+      const s = fx.shake * 0.25;
+      camera.position.x += (Math.random() - 0.5) * s;
+      camera.position.y += (Math.random() - 0.5) * s;
+      fx.shake *= Math.max(0, 1 - delta * 9);
+    }
   });
   return null;
 }
@@ -116,10 +123,15 @@ export default function Scene() {
   const matchKey = useStore((state) => state.matchKey);
   const stageIndex = useStore((state) => state.stage);
   const level = useLevel();
+  // Any match reset clears leftover shake.
+  useEffect(() => {
+    fx.shake = 0;
+  }, [matchKey]);
 
   const inMatch =
     mode !== "keepup" &&
     (phase === "playing" || phase === "paused" || phase === "matchover");
+  const guestView = mode === "online" && useStore.getState().online.role === "guest";
   const theme = inMatch
     ? mode === "adventure"
       ? STAGES[stageIndex].theme
@@ -131,8 +143,10 @@ export default function Scene() {
       <Environment theme={theme} accentLight={theme.accent} />
       {inMatch ? (
         <>
-          <CameraRig base={[0, 7.5, 16.5]} look={[0, 0.5, -2]} />
-          <MatchScene key={matchKey} />
+          <CameraRig base={[0, 7.5, 16.5]} look={[0, 0.5, -2]} mirror={guestView} />
+          <group rotation={[0, guestView ? Math.PI : 0, 0]}>
+            <MatchScene key={matchKey} />
+          </group>
         </>
       ) : (
         <>

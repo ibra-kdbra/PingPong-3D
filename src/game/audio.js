@@ -92,6 +92,17 @@ class AudioManager {
     this.beep(140, { type: "sawtooth", duration: 0.18, gain: 0.09 });
   }
 
+  /** Ball clips the net cord and trickles over. */
+  netCord() {
+    this.beep(180, { type: "square", duration: 0.06, gain: 0.05 });
+    this.beep(900, { when: 0.05, type: "sine", duration: 0.12, gain: 0.05 });
+  }
+
+  /** Heavy hit: the regular ping plus a low thump underneath. */
+  smash() {
+    this.beep(90, { type: "sine", duration: 0.16, gain: 0.14 });
+  }
+
   point(won) {
     if (won) {
       this.beep(587.33, { when: 0, type: "triangle", duration: 0.12 });
