@@ -71,9 +71,13 @@ sides; scores are shown from each player's own perspective.
 - **Rematch**: either side sends `rematch`; the host restarts its engine
   when both have agreed (a two-way handshake, like a rematch button that
   lights up when the other side pressed it).
-- **Disconnect / close**: the DataChannel close event ends the match
-  with a "connection lost" screen; no hanging states. Pings every 2 s
-  keep the HUD's latency badge honest.
+- **Disconnect / close**: a clean DataChannel close ends the match with a
+  "connection lost" screen. A peer that simply vanishes — closed laptop,
+  killed tab, dead network — never sends one, and WebRTC itself can take
+  30 s or more to notice, so both sides also watch for silence: traffic
+  runs constantly (snapshots one way, inputs the other, pings every 2 s),
+  and five seconds without a single message ends the match. No hanging
+  states either way.
 - **Pause** is host-only and mirrored to the guest as a phase in `snap`.
 
 ## Getting a connection (ICE)
@@ -110,7 +114,15 @@ for a game; no personal data is exchanged beyond a display name.
 ## Testing
 
 `src/net/session.js` (host/guest logic, serialisation, smoothing) is
-pure JS with a pluggable transport. `createLoopbackPair()` connects a
+pure JS with a pluggable transport and an injectable clock. `createLoopbackPair()` connects a
 host and a guest in one process with an optional simulated latency and
 loss, so the whole online flow — handshake, inputs, snapshots, events,
-rematch, disconnect — runs under `node --test` with no network.
+rematch, disconnect, heartbeat timeout — runs under `node --test` with
+no network.
+
+The real client is covered too: point the game at a local signalling
+server with `configureSignalling({ host, port, path, secure })`, run
+`peerjs-server`, and drive two browser pages against it. That exercises
+the actual PeerJS client, RTCPeerConnection and DataChannel end to end —
+create a room, join by code, play a full match, rematch, disconnect —
+without touching the public server.
