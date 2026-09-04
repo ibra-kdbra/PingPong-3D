@@ -56,6 +56,15 @@ const PEER_OPTIONS = {
   },
 };
 
+/**
+ * Point the game at a self-hosted `peerjs-server` instead of the public
+ * one (see NETPLAY.md): configureSignalling({ host, port, path, secure }).
+ * Also how the end-to-end test drives a local server.
+ */
+export function configureSignalling(options) {
+  Object.assign(PEER_OPTIONS, options);
+}
+
 /** Signalling errors that make a room unusable; everything else is transient. */
 const FATAL = new Set([
   "unavailable-id",

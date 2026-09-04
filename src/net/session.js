@@ -17,6 +17,13 @@ import { GRAVITY, TABLE, BALL_RADIUS } from "../game/match.js";
 export const PROTOCOL_VERSION = 2;
 const SNAPSHOT_INTERVAL = 1 / 30;
 const PING_INTERVAL = 2;
+/**
+ * Both sides talk constantly — snapshots at 30 Hz one way, inputs every
+ * frame the other, plus pings. If nothing arrives for this long the peer
+ * is gone: a closed laptop, a killed tab or a dead network never sends a
+ * clean close, and WebRTC itself can take 30 s or more to notice.
+ */
+const PEER_TIMEOUT = 5;
 const MAGNUS = 0.5;
 const DIP = 0.35;
 
@@ -37,8 +44,25 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
   let nextSnap = 0;
   let nextPing = 0;
   let current = match;
+  let lastSeen = now();
+  let lost = false;
+
+  /** Give up on a peer that has stopped talking. */
+  const checkAlive = (t) => {
+    if (lost || !state.connected || t - lastSeen <= PEER_TIMEOUT) return false;
+    lost = true;
+    state.connected = false;
+    emit("closed", "timeout");
+    try {
+      transport.close("timeout");
+    } catch {
+      /* already gone */
+    }
+    return true;
+  };
 
   transport.onMessage((m) => {
+    lastSeen = now();
     switch (m.t) {
       case "hello":
         if (m.v !== PROTOCOL_VERSION) {
@@ -103,6 +127,7 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
     /** Called every frame after stepping: streams snapshots, events, pings. */
     afterStep(events, count) {
       const t = now();
+      if (checkAlive(t)) return;
       if (count > 0) {
         const list = [];
         for (let i = 0; i < count; i++) {
@@ -182,8 +207,25 @@ export function createGuest({ transport, name = "Guest", now = () => performance
   const emit = (type, data) => listeners.forEach((cb) => cb(type, data));
   let seq = 0;
   let nextPing = 0;
+  let lastSeen = now();
+  let lost = false;
+
+  /** Give up on a host that has stopped talking. */
+  const checkAlive = (t) => {
+    if (lost || !state.connected || t - lastSeen <= PEER_TIMEOUT) return false;
+    lost = true;
+    state.connected = false;
+    emit("closed", "timeout");
+    try {
+      transport.close("timeout");
+    } catch {
+      /* already gone */
+    }
+    return true;
+  };
 
   transport.onMessage((m) => {
+    lastSeen = now();
     switch (m.t) {
       case "welcome":
         state.connected = true;
@@ -296,6 +338,7 @@ export function createGuest({ transport, name = "Guest", now = () => performance
     },
     /** Advance the shadow: integrate locally, ease toward the host. */
     update(dt) {
+      if (checkAlive(now())) return;
       if (!target.has) return;
       integrate(target.ball, dt);
       integrate(shadow.ball, dt);
