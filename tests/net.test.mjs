@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createMatch } from "../src/game/match.js";
-import { createLoopbackPair, makeRoomCode, peerIdFor } from "../src/net/transport.js";
+import {
+  createLoopbackPair,
+  makeRoomCode,
+  peerIdFor,
+  describeError,
+  ICE_SERVERS,
+} from "../src/net/transport.js";
 import { createHost, createGuest, PROTOCOL_VERSION } from "../src/net/session.js";
 
 const STEP = 1 / 120;
@@ -167,4 +173,36 @@ test("pause is mirrored to the guest", () => {
   host.setPaused(false);
   flushAll();
   assert.equal(guest.state.paused, false);
+});
+
+test("connection failures are explained in terms a player can act on", () => {
+  // The room simply is not there.
+  assert.match(describeError({ type: "peer-unavailable" }), /No room with that code/);
+  // Signalling worked but ICE could not find a path — the case that says
+  // "Negotiation of connection ... failed" in PeerJS.
+  const blocked = describeError({ type: "negotiation-failed" });
+  assert.match(blocked, /networks wouldn't connect/);
+  assert.match(blocked, /same Wi-Fi/);
+  assert.match(describeError({ type: "unavailable-id" }), /already in use/);
+  assert.match(describeError({ type: "network" }), /matchmaking server/);
+  assert.match(describeError({ type: "browser-incompatible" }), /browser/);
+  // Anything unrecognised still says something, never "[object Object]".
+  assert.equal(describeError({ message: "boom" }), "boom");
+  assert.match(describeError({}), /Try again/);
+});
+
+test("ICE configuration offers STUN plus more than one TURN relay", () => {
+  const urls = ICE_SERVERS.flatMap((s) => [].concat(s.urls));
+  assert.ok(urls.some((u) => u.startsWith("stun:")), "has STUN");
+  const turnHosts = new Set(
+    urls.filter((u) => u.startsWith("turn")).map((u) => u.split(":")[1])
+  );
+  assert.ok(turnHosts.size >= 2, `relays on ${turnHosts.size} hosts`);
+  // A TLS/443 relay is what gets through networks that only allow HTTPS.
+  assert.ok(urls.some((u) => u.includes(":443")), "has a 443 relay");
+  for (const server of ICE_SERVERS) {
+    if ([].concat(server.urls).some((u) => u.startsWith("turn"))) {
+      assert.ok(server.username && server.credential, "TURN needs credentials");
+    }
+  }
 });
