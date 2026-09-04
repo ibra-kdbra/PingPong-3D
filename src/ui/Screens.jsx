@@ -130,7 +130,9 @@ function MapScreen() {
 
 function OnlineScreen() {
   const online = useStore((state) => state.online);
-  const { hostRoom, joinRoom, leaveOnline, setPlayerName } = useStore((state) => state.api);
+  const { hostRoom, joinRoom, leaveOnline, setPlayerName, retryOnline } = useStore(
+    (state) => state.api
+  );
   const [code, setCode] = useState("");
   const busy = online.status === "creating" || online.status === "joining" || online.status === "waiting";
 
@@ -161,7 +163,10 @@ function OnlineScreen() {
             <span className="field-label">Room code — send it to your friend</span>
             <div className="room-code" aria-live="polite">{online.code || "······"}</div>
             <p className="matchover-sub">
-              {online.status === "creating" ? "Opening the room…" : "Waiting for them to join…"}
+              {online.note ||
+                (online.status === "creating"
+                  ? "Opening the room…"
+                  : "Waiting for them to join…")}
             </p>
             <button className="btn btn-ghost" onClick={leaveOnline}>Cancel</button>
           </div>
@@ -194,7 +199,17 @@ function OnlineScreen() {
           </>
         )}
 
-        {online.status === "error" && <p className="error">{online.error}</p>}
+        {online.status === "joining" && online.note && (
+          <p className="matchover-sub">{online.note}</p>
+        )}
+        {online.status === "error" && (
+          <>
+            <p className="error">{online.error}</p>
+            <button className="btn btn-mode" onClick={retryOnline}>
+              Try again
+            </button>
+          </>
+        )}
         <p className="howto howto-quiet">
           <span>Peer-to-peer over WebRTC · first to 7 · the host serves first</span>
         </p>
