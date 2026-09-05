@@ -10,6 +10,11 @@ import {
   loadTurn,
   saveTurn,
   turnFromUrl,
+  loadEndpoint,
+  saveEndpoint,
+  endpointFromUrl,
+  resolveIce,
+  probeRelay,
 } from "../net/transport.js";
 import { createHost, createGuest } from "../net/session.js";
 import { createMatch } from "./match.js";
@@ -98,6 +103,11 @@ export const useStore = create((set, get) => {
       name: loadName(),
       /** A TURN relay the player supplied, or null. */
       turn: loadTurn(),
+      /** A URL that mints relay credentials on demand, or "". */
+      endpoint: loadEndpoint(),
+      /** Result of the last relay test: null | {ok, text} */
+      relay: null,
+      testing: false,
     },
 
     // --- keep-up mode ---
@@ -410,9 +420,11 @@ export const useStore = create((set, get) => {
         resetNet();
         // A relay can arrive in the shared link, so both players get it
         // from one URL rather than typing it twice.
-        const fromUrl =
-          typeof location !== "undefined" ? turnFromUrl(location.search) : null;
+        const search = typeof location !== "undefined" ? location.search : "";
+        const fromUrl = turnFromUrl(search);
         if (fromUrl) saveTurn(fromUrl);
+        const endpointFromLink = endpointFromUrl(search);
+        if (endpointFromLink) saveEndpoint(endpointFromLink);
         set((s) => ({
           phase: "online",
           mode: "online",
@@ -424,6 +436,8 @@ export const useStore = create((set, get) => {
             error: "",
             note: "",
             turn: loadTurn(),
+            endpoint: loadEndpoint(),
+            relay: null,
             rematch: { me: false, them: false },
           },
         }));
@@ -440,7 +454,38 @@ export const useStore = create((set, get) => {
               }
             : null;
         saveTurn(clean);
-        get().api.setOnline({ turn: clean });
+        get().api.setOnline({ turn: clean, relay: null });
+      },
+
+      /** Store (or clear) a URL that mints relay credentials on demand. */
+      setIceEndpoint(url) {
+        const clean = String(url || "").trim();
+        saveEndpoint(clean);
+        get().api.setOnline({ endpoint: clean, relay: null });
+      },
+
+      /**
+       * Actually ask the browser for a relayed address. This is the only
+       * honest check: it runs on the player's own network, through their
+       * own firewall, with whatever credentials they have configured — so
+       * they learn whether online play will work *before* spending a
+       * minute failing to connect to a friend.
+       */
+      async testRelay() {
+        const { api } = get();
+        api.setOnline({ testing: true, relay: null });
+        try {
+          const servers = await resolveIce();
+          const result = await probeRelay(servers);
+          api.setOnline({
+            testing: false,
+            relay: result.ok
+              ? { ok: true, text: `Relay works — reachable in ${result.ms} ms.` }
+              : { ok: false, text: result.reason },
+          });
+        } catch (e) {
+          api.setOnline({ testing: false, relay: { ok: false, text: e?.message || "Test failed." } });
+        }
       },
 
       /** Wire a connected transport into a session and start the match. */
@@ -522,11 +567,18 @@ export const useStore = create((set, get) => {
         const code = makeRoomCode();
         api.setOnline({ status: "creating", code, error: "", note: "", role: "host" });
         try {
+          let live = code;
           const transport = await createPeerHost(code, {
             onWaiting: () => api.setOnline({ status: "waiting", note: "" }),
             onStatus: (note) => api.setOnline({ note }),
+            // The broker can refuse a code (a crashed tab leaves an id
+            // alive for a while); show the one people can actually join.
+            onCode: (next) => {
+              live = next;
+              api.setOnline({ code: next });
+            },
           });
-          if (get().phase !== "online" || get().online.code !== code) {
+          if (get().phase !== "online" || get().online.code !== live) {
             transport.close("cancelled");
             return;
           }
