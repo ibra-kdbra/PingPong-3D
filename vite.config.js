@@ -3,9 +3,6 @@ import path from 'path'
 
 export default {
     plugins: [react()],
-  define: {
-    __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
-  },
     define: {
         __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' '))
     },
