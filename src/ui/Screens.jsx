@@ -128,6 +128,64 @@ function MapScreen() {
 }
 
 
+function RelaySettings() {
+  const turn = useStore((state) => state.online.turn);
+  const { setTurn } = useStore((state) => state.api);
+  const [urls, setUrls] = useState(turn?.urls || "");
+  const [username, setUsername] = useState(turn?.username || "");
+  const [credential, setCredential] = useState(turn?.credential || "");
+  const [saved, setSaved] = useState(false);
+
+  const apply = (e) => {
+    e.preventDefault();
+    setTurn(urls.trim() ? { urls, username, credential } : null);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <details className="advanced">
+      <summary>
+        Advanced — relay server
+        {turn && <span className="tag">in use</span>}
+      </summary>
+      <p className="field-note">
+        If a direct connection keeps failing, a TURN relay forwards the
+        traffic. Free accounts at providers like metered.ca or Cloudflare
+        give you one in a couple of minutes; paste its address and
+        credentials here. You can also share a link containing{" "}
+        <code>?turn=…&amp;turnuser=…&amp;turnpass=…</code> so your friend
+        gets the same relay automatically.
+      </p>
+      <form className="relay-form" onSubmit={apply}>
+        <input
+          className="input"
+          placeholder="turn:relay.example.com:3478"
+          value={urls}
+          onChange={(e) => setUrls(e.target.value)}
+        />
+        <div className="join">
+          <input
+            className="input"
+            placeholder="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <input
+            className="input"
+            placeholder="password"
+            value={credential}
+            onChange={(e) => setCredential(e.target.value)}
+          />
+        </div>
+        <button className="btn btn-mode" type="submit">
+          {saved ? "Saved" : urls.trim() ? "Save relay" : "Clear relay"}
+        </button>
+      </form>
+    </details>
+  );
+}
+
 function OnlineScreen() {
   const online = useStore((state) => state.online);
   const { hostRoom, joinRoom, leaveOnline, setPlayerName, retryOnline } = useStore(
@@ -210,8 +268,13 @@ function OnlineScreen() {
             </button>
           </>
         )}
+        <RelaySettings />
         <p className="howto howto-quiet">
-          <span>Peer-to-peer over WebRTC · first to 7 · the host serves first</span>
+          Peer-to-peer over WebRTC · first to 7 · the host serves first
+          <br />
+          <span className="build">
+            build {typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev"}
+          </span>
         </p>
       </div>
     </div>
