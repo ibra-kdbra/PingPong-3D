@@ -7,46 +7,34 @@
  *  - Loopback pair: two in-process ends with optional simulated latency and
  *    loss, for tests and local demos.
  */
+import {
+  ICE_SERVERS,
+  PUBLIC_TURN,
+  STUN_SERVERS,
+  iceServersSync,
+  loadEndpoint,
+  loadTurn,
+  resolveIce,
+  saveEndpoint,
+  saveTurn,
+  turnFromUrl,
+  endpointFromUrl,
+  probeRelay,
+} from "./ice.js";
 
-/**
- * ICE servers. PeerJS ships one STUN server and its own (heavily
- * rate-limited) TURN relays; when both players sit behind NAT that needs a
- * relay — mobile data, corporate Wi-Fi, a VPN — those alone routinely fail
- * ICE, which surfaces as "Negotiation of connection ... failed". Offering
- * several STUN servers and more than one TURN relay, including TLS on 443
- * for networks that only allow HTTPS, makes a path far more likely.
- */
-export const ICE_SERVERS = [
-  {
-    urls: [
-      "stun:stun.l.google.com:19302",
-      "stun:stun1.l.google.com:19302",
-      "stun:stun.cloudflare.com:3478",
-    ],
-  },
-  {
-    urls: [
-      "turn:openrelay.metered.ca:80",
-      "turn:openrelay.metered.ca:443",
-      "turn:openrelay.metered.ca:443?transport=tcp",
-    ],
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: [
-      "turn:staticauth.openrelay.metered.ca:80",
-      "turn:staticauth.openrelay.metered.ca:443",
-    ],
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"],
-    username: "peerjs",
-    credential: "peerjsp",
-  },
-];
+export {
+  ICE_SERVERS,
+  PUBLIC_TURN,
+  STUN_SERVERS,
+  loadTurn,
+  saveTurn,
+  loadEndpoint,
+  saveEndpoint,
+  turnFromUrl,
+  endpointFromUrl,
+  probeRelay,
+  resolveIce,
+};
 
 const BASE_CONFIG = { sdpSemantics: "unified-plan", iceCandidatePoolSize: 4 };
 const signalling = {};
@@ -60,55 +48,25 @@ export function configureSignalling(options) {
   Object.assign(signalling, options);
 }
 
-const TURN_KEY = "pingpong3d.turn";
-
-/** A relay the player supplied themselves, or null. */
-export function loadTurn() {
-  try {
-    const raw = localStorage.getItem(TURN_KEY);
-    const turn = raw ? JSON.parse(raw) : null;
-    return turn && turn.urls ? turn : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveTurn(turn) {
-  try {
-    if (turn && turn.urls) localStorage.setItem(TURN_KEY, JSON.stringify(turn));
-    else localStorage.removeItem(TURN_KEY);
-  } catch {
-    /* private mode */
-  }
+/** The synchronous view, for callers that can't await (kept for tests). */
+export function iceServers() {
+  return iceServersSync();
 }
 
 /**
- * A relay can also travel in the link you send your friend:
- * ...?turn=turn:host:3478&turnuser=NAME&turnpass=SECRET
- * so both sides end up on the same relay from one shared URL.
+ * PeerJS options. Resolving ICE can involve a network round trip to a
+ * credentials provider, so this is async; a provider that is slow or down
+ * degrades to the built-in list rather than blocking the connection.
  */
-export function turnFromUrl(search) {
-  const q = new URLSearchParams(search || "");
-  const urls = q.get("turn");
-  if (!urls) return null;
-  return {
-    urls,
-    username: q.get("turnuser") || "",
-    credential: q.get("turnpass") || "",
-  };
-}
-
-/** The player's own relay first, then the best-effort public ones. */
-export function iceServers() {
-  const own = loadTurn();
-  return own ? [own, ...ICE_SERVERS] : ICE_SERVERS;
-}
-
-function peerOptions() {
-  return {
-    ...signalling,
-    config: { ...BASE_CONFIG, iceServers: iceServers() },
-  };
+async function peerOptions({ relayOnly = false } = {}) {
+  const iceServers = await resolveIce();
+  const config = { ...BASE_CONFIG, iceServers };
+  // Forcing relay-only discards direct paths entirely. Used for the second
+  // attempt: if a direct path were going to work it already would have,
+  // and a half-working srflx pair can otherwise win the nomination and
+  // then blackhole.
+  if (relayOnly) config.iceTransportPolicy = "relay";
+  return { ...signalling, config };
 }
 
 /**
@@ -125,9 +83,14 @@ function watchCandidates(conn, seen) {
       if (tries++ < 60) setTimeout(attach, 50);
       return;
     }
+    // addEventListener, not onicecandidate: PeerJS owns that property and
+    // clears it when gathering completes.
     pc.addEventListener("icecandidate", (e) => {
       const found = /\btyp (\w+)/.exec(e.candidate?.candidate || "");
       if (found) seen.add(found[1]);
+    });
+    pc.addEventListener("icecandidateerror", (e) => {
+      if (e.errorCode === 401 || e.errorCode === 403) seen.add("relay-rejected");
     });
   };
   attach();
@@ -151,15 +114,17 @@ export function failureMessage(err, candidates = new Set()) {
 
 /** Why a connection that reached negotiation still failed. */
 function pathFailure(seen) {
+  if (seen.has("relay-rejected")) {
+    return "Couldn't connect. The relay server refused the credentials it was given — if you set one up under Advanced, check the username and password.";
+  }
   if (!seen.has("relay")) {
-    return "Couldn't connect. No relay server answered, so this needed a direct path between your networks and one of them blocked it — usual on mobile data, work or campus Wi-Fi, and VPNs. Put both devices on the same Wi-Fi, or add your own relay under Advanced.";
+    return "Couldn't connect. No relay server answered, so this needed a direct path between your networks and one of them blocked it — usual on mobile data, work or campus Wi-Fi, and VPNs. Add a relay under Advanced, or put both devices on the same Wi-Fi.";
   }
   return "Couldn't connect even through a relay. One of the two networks is blocking peer-to-peer traffic outright. Try a different network, or both devices on the same Wi-Fi.";
 }
 
 /** Signalling errors that make a room unusable; everything else is transient. */
 const FATAL = new Set([
-  "unavailable-id",
   "invalid-id",
   "invalid-key",
   "browser-incompatible",
@@ -191,8 +156,15 @@ export function describeError(e) {
   }
 }
 
-/** How long a join attempt may spend on signalling and ICE. */
-const JOIN_TIMEOUT = 25000;
+/**
+ * How long one join attempt may spend on signalling and ICE. Two are made
+ * (direct, then relay-only) and together they must not keep the player
+ * waiting longer than the single attempt used to: half of 25 s each.
+ * ICE normally settles in a few seconds, so this is already generous.
+ */
+const ATTEMPT_TIMEOUT = 12500;
+/** How many fresh room codes the host will try if the broker says "taken". */
+const CODE_RETRIES = 3;
 
 /** Readable room codes: no 0/O/1/I ambiguity. */
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -279,13 +251,48 @@ async function loadPeer() {
   return mod.Peer ?? mod.default;
 }
 
+/**
+ * Data channel options. `reliable: true` is not optional for this game:
+ * PeerJS builds the channel as `{ ordered: !!options.reliable }`, so
+ * leaving it out gives an *unordered* channel. Snapshots carry the score
+ * and phase, so a snapshot overtaking a newer one visibly rewinds the
+ * game. (The session layer also drops stale snapshots, because a protocol
+ * should not depend on the transport being well behaved.)
+ */
+const CHANNEL = { serialization: "json", reliable: true };
+
 function wrapConnection(conn, peer) {
   const end = makeEnd();
   let open = true;
+  // A closed tab never sends a clean goodbye, so the peer would sit out
+  // the whole heartbeat timeout wondering. One line takes that from about
+  // five seconds to about a tenth of one.
+  const bye = () => { try { conn.close(); } catch { /* ignore */ } };
+  const unbind = () => {
+    if (typeof removeEventListener === "function") removeEventListener("pagehide", bye);
+  };
+  if (typeof addEventListener === "function") addEventListener("pagehide", bye);
+
+  const shut = (reason) => {
+    if (!open) return;
+    open = false;
+    unbind();
+    end.emitClose(reason);
+  };
   conn.on("data", (data) => end.emitMessage(data));
-  conn.on("close", () => { if (open) { open = false; end.emitClose("peer-closed"); } });
-  conn.on("error", (e) => { if (open) { open = false; end.emitClose(String(e?.message || e)); } });
+  conn.on("close", () => shut("peer-closed"));
+  conn.on("error", (e) => shut(failureMessage(e)));
+  // Errors raised on the peer after the match has started used to go
+  // nowhere. Only act on them once the data channel itself is gone: the
+  // peer object also reports things that have nothing to do with this
+  // match (a second guest knocking, the signalling socket dropping), and
+  // ending a live game over one of those would be worse than ignoring it.
+  peer.on("error", (e) => {
+    if (conn.open) return;
+    shut(failureMessage(e));
+  });
   peer.on("disconnected", () => { /* signalling only; data channel keeps working */ });
+
   return {
     send(msg) { if (open && conn.open) conn.send(msg); },
     onMessage: end.onMessage,
@@ -293,6 +300,7 @@ function wrapConnection(conn, peer) {
     close(reason = "closed") {
       if (!open) return;
       open = false;
+      unbind();
       try { conn.close(); } catch { /* ignore */ }
       try { peer.destroy(); } catch { /* ignore */ }
       end.emitClose(reason);
@@ -301,13 +309,46 @@ function wrapConnection(conn, peer) {
   };
 }
 
-export function createPeerHost(code, { onWaiting, onStatus } = {}) {
-  return new Promise(async (resolve, reject) => {
-    const Peer = await loadPeer();
-    const peer = new Peer(peerIdFor(code), peerOptions());
+/**
+ * Open a room and wait for a guest.
+ *
+ * `onCode` fires whenever the room code changes — the broker can report a
+ * code as taken (a ghost room left by a crashed tab keeps an id alive for
+ * a while), and silently picking a new one would leave the player reading
+ * a code nobody can join.
+ */
+export async function createPeerHost(code, { onWaiting, onStatus, onCode } = {}) {
+  const Peer = await loadPeer();
+  const options = await peerOptions();
+  let current = code;
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await openRoom(Peer, options, current, { onWaiting, onStatus });
+    } catch (e) {
+      if (e?.type !== "unavailable-id" || attempt >= CODE_RETRIES) {
+        throw new Error(failureMessage(e));
+      }
+      current = makeRoomCode();
+      onCode?.(current);
+      onStatus?.("That code was taken — opening another room…");
+    }
+  }
+}
+
+function openRoom(Peer, options, code, { onWaiting, onStatus }) {
+  return new Promise((resolve, reject) => {
+    const peer = new Peer(peerIdFor(code), options);
+    const candidates = new Set();
     let settled = false;
+    const give = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
     peer.on("open", () => onWaiting?.(code));
     peer.on("connection", (conn) => {
+      watchCandidates(conn, candidates);
       conn.on("open", () => {
         if (settled) {
           conn.close();
@@ -316,9 +357,11 @@ export function createPeerHost(code, { onWaiting, onStatus } = {}) {
         settled = true;
         resolve(wrapConnection(conn, peer));
       });
-      // A guest that fails to negotiate must not take the room down: report
-      // it and keep listening so they (or someone else) can try again.
-      conn.on("error", (e) => onStatus?.(describeError(e)));
+      // A guest that fails to negotiate must not take the room down:
+      // report it and keep listening so they can try again.
+      conn.on("error", (e) => {
+        if (!settled) onStatus?.(failureMessage(e, candidates));
+      });
     });
     // The signalling socket can drop while nobody has joined yet; without
     // this the room quietly stops existing and guests get "no such room".
@@ -332,28 +375,70 @@ export function createPeerHost(code, { onWaiting, onStatus } = {}) {
     });
     peer.on("error", (e) => {
       if (settled) return;
+      // `unavailable-id` is recoverable by the caller with a fresh code,
+      // so it is rejected raw rather than as prose.
+      if (e?.type === "unavailable-id") {
+        try {
+          peer.destroy();
+        } catch {
+          /* ignore */
+        }
+        give(reject, e);
+        return;
+      }
       if (!FATAL.has(e?.type)) {
         onStatus?.(describeError(e));
         return;
       }
-      settled = true;
       try {
         peer.destroy();
       } catch {
         /* ignore */
       }
-      reject(new Error(describeError(e)));
+      give(reject, e);
     });
   });
 }
 
-export function createPeerGuest(code, { onStatus } = {}) {
-  return new Promise(async (resolve, reject) => {
-    const Peer = await loadPeer();
-    const peer = new Peer(peerOptions());
+/**
+ * Join a room. Two attempts: the normal one, then — if that failed on the
+ * network rather than on the room being absent — a relay-only retry.
+ * Forcing relay is worth a second attempt because the common failure is
+ * not "no path exists" but "the browser picked a path that doesn't work".
+ */
+export async function createPeerGuest(code, { onStatus } = {}) {
+  const Peer = await loadPeer();
+  const direct = await peerOptions();
+  try {
+    return await joinRoom(Peer, direct, code, { onStatus });
+  } catch (first) {
+    // No point relaying if the room isn't there, or if the browser can't
+    // do this at all.
+    if (first.fatal || !hasRelay(direct)) throw new Error(first.message);
+    onStatus?.("Retrying through a relay…");
+    const relayed = await peerOptions({ relayOnly: true });
+    try {
+      return await joinRoom(Peer, relayed, code, { onStatus });
+    } catch (second) {
+      throw new Error(second.message || first.message);
+    }
+  }
+}
+
+const hasRelay = (options) =>
+  (options.config?.iceServers || []).some((s) =>
+    (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => String(u).startsWith("turn"))
+  );
+
+/** Errors that a relay retry cannot possibly fix. */
+const NO_RETRY = new Set(["peer-unavailable", "browser-incompatible", "invalid-id", "invalid-key"]);
+
+function joinRoom(Peer, options, code, { onStatus }) {
+  return new Promise((resolve, reject) => {
+    const peer = new Peer(options);
+    const candidates = new Set();
     let settled = false;
     let timer = 0;
-    const candidates = new Set();
     /**
      * PeerJS errors are Error subclasses carrying a `type`, so testing
      * `instanceof Error` and passing them through showed raw internals
@@ -369,7 +454,7 @@ export function createPeerGuest(code, { onStatus } = {}) {
       } catch {
         /* ignore */
       }
-      reject(new Error(failureMessage(err, candidates)));
+      reject({ message: failureMessage(err, candidates), fatal: NO_RETRY.has(err?.type) });
     };
     timer = setTimeout(
       () =>
@@ -378,13 +463,11 @@ export function createPeerGuest(code, { onStatus } = {}) {
             "The room didn't answer in time. Your friend may have closed the page, or the networks can't reach each other."
           )
         ),
-      JOIN_TIMEOUT
+      ATTEMPT_TIMEOUT
     );
     peer.on("open", () => {
       onStatus?.("Reaching the room…");
-      // Reliable and ordered: point and game-over events travel on this
-      // channel, and a dropped one would desync the score for good.
-      const conn = peer.connect(peerIdFor(code), { serialization: "json" });
+      const conn = peer.connect(peerIdFor(code), CHANNEL);
       watchCandidates(conn, candidates);
       conn.on("open", () => {
         settled = true;

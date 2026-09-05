@@ -46,15 +46,33 @@ Online play is peer-to-peer, so the two browsers must find a network path
 to each other. Direct works on most home connections; mobile data, work
 or campus Wi-Fi and VPNs commonly block it and need a **relay** (TURN).
 
-The game ships with public relays, but they are free and best-effort. If
-you see *"No relay server answered"*, open **Advanced — relay server** in
-the online lobby and paste one of your own: free accounts at providers
-like metered.ca or Cloudflare take a couple of minutes. You can also send
-your friend a link carrying the relay so you both use it:
+Open **Relay server** in the online lobby and press **Test relay** before
+you invite anyone. It asks your browser for a relayed address using only
+TURN, so it tells you in about a second whether online play will work
+from where you are sitting — instead of finding out after a failed join.
+
+The game ships with public relays, but they are free, shared and
+best-effort. If the test fails, add one of your own in the same panel. Two
+ways to give it to the game:
+
+- **Credentials URL** — a URL the game can `GET` that returns ICE servers
+  as JSON. Preferred: the credentials are short-lived and nothing
+  long-lived is stored. A free metered.ca account gives you one directly
+  (`https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=…`).
+- **A fixed relay** — address, username and password. Use this for
+  providers that mint credentials behind an authenticated request rather
+  than a plain URL, Cloudflare among them.
+
+Either can travel in the link you send your friend, so only one of you
+has to set it up:
 
 ```
+https://ibra-kdbra.github.io/PingPong-3D/?ice=https://YOUR-PROVIDER/credentials
 https://ibra-kdbra.github.io/PingPong-3D/?turn=turn:HOST:3478&turnuser=USER&turnpass=SECRET
 ```
+
+If you deploy your own copy, set the `ICE_ENDPOINT` repository secret and
+every player gets a relay automatically — see [NETPLAY.md](NETPLAY.md).
 
 The lobby footer shows the build date — handy for checking both players
 are on the same version after an update.
