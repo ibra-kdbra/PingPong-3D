@@ -157,11 +157,12 @@ export function describeError(e) {
 }
 
 /**
- * How long one join attempt may spend on signalling and ICE. Two attempts
- * are made (direct, then relay-only), so this is half the patience the
- * player actually gets.
+ * How long one join attempt may spend on signalling and ICE. Two are made
+ * (direct, then relay-only) and together they must not keep the player
+ * waiting longer than the single attempt used to: half of 25 s each.
+ * ICE normally settles in a few seconds, so this is already generous.
  */
-const ATTEMPT_TIMEOUT = 15000;
+const ATTEMPT_TIMEOUT = 12500;
 /** How many fresh room codes the host will try if the broker says "taken". */
 const CODE_RETRIES = 3;
 
