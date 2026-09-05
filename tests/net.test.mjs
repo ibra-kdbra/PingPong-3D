@@ -1,13 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createMatch } from "../src/game/match.js";
-import {
+// A localStorage stand-in, so the relay settings can be tested in Node.
+const store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)),
+  removeItem: (k) => store.delete(k),
+  clear: () => store.clear(),
+};
+
+const {
   createLoopbackPair,
   makeRoomCode,
   peerIdFor,
   describeError,
+  failureMessage,
   ICE_SERVERS,
-} from "../src/net/transport.js";
+  iceServers,
+  loadTurn,
+  saveTurn,
+  turnFromUrl,
+} = await import("../src/net/transport.js");
 import { createHost, createGuest, PROTOCOL_VERSION } from "../src/net/session.js";
 
 const STEP = 1 / 120;
@@ -246,4 +260,81 @@ test("a peer that goes silent is reported lost instead of freezing", () => {
   );
   assert.equal(host.state.connected, false);
   assert.equal(guest.state.connected, false);
+});
+
+/** PeerJS errors are Error subclasses that carry a `type`. */
+class FakePeerError extends Error {
+  constructor(type, message) {
+    super(message);
+    this.type = type;
+  }
+}
+
+test("PeerJS errors are translated, never shown raw", () => {
+  // The exact regression: this used to reach the player verbatim because
+  // a PeerError passes `instanceof Error`.
+  const raw = new FakePeerError(
+    "negotiation-failed",
+    "Negotiation of connection to pingpong3d-3XC2DE failed."
+  );
+  const shown = failureMessage(raw);
+  assert.ok(!shown.includes("Negotiation of connection"), shown);
+  assert.ok(!shown.includes("pingpong3d-"), "no internal peer ids leak");
+  assert.match(shown, /Couldn't connect/);
+
+  const missing = new FakePeerError("peer-unavailable", "Could not connect to peer x");
+  assert.match(failureMessage(missing), /No room with that code/);
+
+  // Our own errors (the join timeout) keep their wording.
+  assert.equal(failureMessage(new Error("The room didn't answer in time.")),
+    "The room didn't answer in time.");
+});
+
+test("the failure explains whether a relay was even available", () => {
+  const err = new FakePeerError("negotiation-failed", "raw");
+  const noRelay = failureMessage(err, new Set(["host", "srflx"]));
+  assert.match(noRelay, /No relay server answered/);
+  assert.match(noRelay, /Advanced/, "points at the setting that fixes it");
+
+  const withRelay = failureMessage(err, new Set(["host", "srflx", "relay"]));
+  assert.match(withRelay, /even through a relay/i);
+  assert.ok(!withRelay.includes("No relay server answered"));
+});
+
+test("a player's own relay is stored and tried first", () => {
+  localStorage.clear();
+  assert.equal(loadTurn(), null);
+  assert.deepEqual(iceServers(), ICE_SERVERS, "defaults when none is set");
+
+  const mine = { urls: "turn:relay.example.com:3478", username: "u", credential: "p" };
+  saveTurn(mine);
+  assert.deepEqual(loadTurn(), mine);
+  const list = iceServers();
+  assert.deepEqual(list[0], mine, "the player's relay is preferred");
+  assert.equal(list.length, ICE_SERVERS.length + 1);
+
+  saveTurn(null);
+  assert.equal(loadTurn(), null, "clearing works");
+});
+
+test("a relay can travel in the shared link", () => {
+  assert.equal(turnFromUrl("?code=ABC"), null);
+  assert.deepEqual(
+    turnFromUrl("?turn=turn%3Arelay.example.com%3A3478&turnuser=bob&turnpass=s3cret"),
+    { urls: "turn:relay.example.com:3478", username: "bob", credential: "s3cret" }
+  );
+  // A relay without credentials is still usable (some are open).
+  assert.deepEqual(turnFromUrl("?turn=turn:open.example:3478"), {
+    urls: "turn:open.example:3478",
+    username: "",
+    credential: "",
+  });
+});
+
+test("corrupt stored relay data does not break startup", () => {
+  localStorage.setItem("pingpong3d.turn", "{not json");
+  assert.equal(loadTurn(), null);
+  localStorage.setItem("pingpong3d.turn", JSON.stringify({ username: "u" }));
+  assert.equal(loadTurn(), null, "an entry with no urls is ignored");
+  localStorage.clear();
 });

@@ -48,13 +48,8 @@ export const ICE_SERVERS = [
   },
 ];
 
-const PEER_OPTIONS = {
-  config: {
-    iceServers: ICE_SERVERS,
-    sdpSemantics: "unified-plan",
-    iceCandidatePoolSize: 4,
-  },
-};
+const BASE_CONFIG = { sdpSemantics: "unified-plan", iceCandidatePoolSize: 4 };
+const signalling = {};
 
 /**
  * Point the game at a self-hosted `peerjs-server` instead of the public
@@ -62,7 +57,104 @@ const PEER_OPTIONS = {
  * Also how the end-to-end test drives a local server.
  */
 export function configureSignalling(options) {
-  Object.assign(PEER_OPTIONS, options);
+  Object.assign(signalling, options);
+}
+
+const TURN_KEY = "pingpong3d.turn";
+
+/** A relay the player supplied themselves, or null. */
+export function loadTurn() {
+  try {
+    const raw = localStorage.getItem(TURN_KEY);
+    const turn = raw ? JSON.parse(raw) : null;
+    return turn && turn.urls ? turn : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTurn(turn) {
+  try {
+    if (turn && turn.urls) localStorage.setItem(TURN_KEY, JSON.stringify(turn));
+    else localStorage.removeItem(TURN_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
+/**
+ * A relay can also travel in the link you send your friend:
+ * ...?turn=turn:host:3478&turnuser=NAME&turnpass=SECRET
+ * so both sides end up on the same relay from one shared URL.
+ */
+export function turnFromUrl(search) {
+  const q = new URLSearchParams(search || "");
+  const urls = q.get("turn");
+  if (!urls) return null;
+  return {
+    urls,
+    username: q.get("turnuser") || "",
+    credential: q.get("turnpass") || "",
+  };
+}
+
+/** The player's own relay first, then the best-effort public ones. */
+export function iceServers() {
+  const own = loadTurn();
+  return own ? [own, ...ICE_SERVERS] : ICE_SERVERS;
+}
+
+function peerOptions() {
+  return {
+    ...signalling,
+    config: { ...BASE_CONFIG, iceServers: iceServers() },
+  };
+}
+
+/**
+ * Record which kinds of ICE candidate we managed to gather. If no `relay`
+ * candidate ever appears, no TURN server answered — which is the
+ * difference between "your networks blocked a direct path" and "even a
+ * relay couldn't help", and the difference matters to the player.
+ */
+function watchCandidates(conn, seen) {
+  let tries = 0;
+  const attach = () => {
+    const pc = conn.peerConnection;
+    if (!pc) {
+      if (tries++ < 60) setTimeout(attach, 50);
+      return;
+    }
+    pc.addEventListener("icecandidate", (e) => {
+      const found = /\btyp (\w+)/.exec(e.candidate?.candidate || "");
+      if (found) seen.add(found[1]);
+    });
+  };
+  attach();
+}
+
+/**
+ * The message for a failed attempt. PeerJS errors are Error subclasses
+ * carrying a `type`, so code that tests `instanceof Error` and passes them
+ * through leaks raw internals like "Negotiation of connection to
+ * pingpong3d-XXXX failed." Anything with a type gets translated; only our
+ * own plain Errors keep their message.
+ */
+export function failureMessage(err, candidates = new Set()) {
+  const type = err?.type;
+  if (type === "negotiation-failed" || type === "webrtc") {
+    return pathFailure(candidates);
+  }
+  if (type) return describeError(err);
+  return err?.message || String(err);
+}
+
+/** Why a connection that reached negotiation still failed. */
+function pathFailure(seen) {
+  if (!seen.has("relay")) {
+    return "Couldn't connect. No relay server answered, so this needed a direct path between your networks and one of them blocked it — usual on mobile data, work or campus Wi-Fi, and VPNs. Put both devices on the same Wi-Fi, or add your own relay under Advanced.";
+  }
+  return "Couldn't connect even through a relay. One of the two networks is blocking peer-to-peer traffic outright. Try a different network, or both devices on the same Wi-Fi.";
 }
 
 /** Signalling errors that make a room unusable; everything else is transient. */
@@ -212,7 +304,7 @@ function wrapConnection(conn, peer) {
 export function createPeerHost(code, { onWaiting, onStatus } = {}) {
   return new Promise(async (resolve, reject) => {
     const Peer = await loadPeer();
-    const peer = new Peer(peerIdFor(code), PEER_OPTIONS);
+    const peer = new Peer(peerIdFor(code), peerOptions());
     let settled = false;
     peer.on("open", () => onWaiting?.(code));
     peer.on("connection", (conn) => {
@@ -258,9 +350,16 @@ export function createPeerHost(code, { onWaiting, onStatus } = {}) {
 export function createPeerGuest(code, { onStatus } = {}) {
   return new Promise(async (resolve, reject) => {
     const Peer = await loadPeer();
-    const peer = new Peer(PEER_OPTIONS);
+    const peer = new Peer(peerOptions());
     let settled = false;
     let timer = 0;
+    const candidates = new Set();
+    /**
+     * PeerJS errors are Error subclasses carrying a `type`, so testing
+     * `instanceof Error` and passing them through showed raw internals
+     * like "Negotiation of connection to pingpong3d-XXXX failed." Always
+     * translate anything that carries a type.
+     */
     const fail = (err) => {
       if (settled) return;
       settled = true;
@@ -270,7 +369,7 @@ export function createPeerGuest(code, { onStatus } = {}) {
       } catch {
         /* ignore */
       }
-      reject(err instanceof Error ? err : new Error(describeError(err)));
+      reject(new Error(failureMessage(err, candidates)));
     };
     timer = setTimeout(
       () =>
@@ -286,6 +385,7 @@ export function createPeerGuest(code, { onStatus } = {}) {
       // Reliable and ordered: point and game-over events travel on this
       // channel, and a dropped one would desync the score for good.
       const conn = peer.connect(peerIdFor(code), { serialization: "json" });
+      watchCandidates(conn, candidates);
       conn.on("open", () => {
         settled = true;
         clearTimeout(timer);
