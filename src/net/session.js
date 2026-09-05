@@ -14,7 +14,7 @@
  */
 import { GRAVITY, TABLE, BALL_RADIUS } from "../game/match.js";
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 const SNAPSHOT_INTERVAL = 1 / 30;
 const PING_INTERVAL = 2;
 /**
@@ -43,6 +43,15 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
   const remote = { x: 0, vx: 0, aim: 0, spin: 0, tech: 0, seq: -1, at: 0 };
   let nextSnap = 0;
   let nextPing = 0;
+  /**
+   * Snapshots carry the score and the phase, so one arriving out of order
+   * rewinds the game in front of the player. The channel is ordered, but a
+   * protocol that only works because the transport is polite is a protocol
+   * waiting to break: number every snapshot and let the guest drop stale
+   * ones. The counter never resets, so a snapshot from before a rematch
+   * can't be mistaken for a fresh one.
+   */
+  let snapSeq = 0;
   let current = match;
   let lastSeen = now();
   let lost = false;
@@ -142,6 +151,7 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
         const b = s.ball;
         transport.send({
           t: "snap",
+          n: ++snapSeq,
           ts: t,
           ball: [b.x, b.y, b.z, b.vx, b.vy, b.vz, b.sx, b.ts],
           p: [s.paddles[0].x, s.paddles[0].vx, s.paddles[1].x, s.paddles[1].vx],
@@ -161,7 +171,7 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
       current = newMatch;
       state.rematch.me = false;
       state.rematch.them = false;
-      transport.send({ t: "restart", cfg: current.state.config });
+      transport.send({ t: "restart", n: snapSeq, cfg: current.state.config });
     },
     requestRematch() {
       state.rematch.me = true;
@@ -207,6 +217,8 @@ export function createGuest({ transport, name = "Guest", now = () => performance
   const emit = (type, data) => listeners.forEach((cb) => cb(type, data));
   let seq = 0;
   let nextPing = 0;
+  /** Highest snapshot number applied; anything older is discarded. */
+  let lastSnap = -1;
   let lastSeen = now();
   let lost = false;
 
@@ -238,6 +250,10 @@ export function createGuest({ transport, name = "Guest", now = () => performance
         emit("error", state.error);
         break;
       case "snap": {
+        if (m.n !== undefined) {
+          if (m.n <= lastSnap) break;
+          lastSnap = m.n;
+        }
         const b = m.ball;
         Object.assign(target.ball, { x: b[0], y: b[1], z: b[2], vx: b[3], vy: b[4], vz: b[5], sx: b[6], ts: b[7] });
         target.paddles[0].x = m.p[0];
@@ -272,6 +288,8 @@ export function createGuest({ transport, name = "Guest", now = () => performance
         emit("rematch", state.rematch);
         break;
       case "restart":
+        // Ignore every snapshot the host sent before the rematch.
+        if (m.n !== undefined) lastSnap = m.n;
         state.rematch.me = false;
         state.rematch.them = false;
         state.scores[0] = 0;
