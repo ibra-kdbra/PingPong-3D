@@ -18,6 +18,14 @@ const RING_LIFE = 0.32;
 /** Fixed simulation step (also what online play synchronises on). */
 const STEP = 1 / 120;
 const MAX_STEPS_PER_FRAME = 8;
+/**
+ * Paddle colours follow ownership, not player number: your own blade is
+ * always the red one and your opponent's the dark one, so the guest — who
+ * is engine player 2 — doesn't end up playing with a near-invisible
+ * paddle against the dark arena.
+ */
+const OWN_PADDLE = "#c8452f";
+const RIVAL_PADDLE = "#4a5578";
 /** Paddle height range driven by pointer height. */
 const PADDLE_Y_MIN = 0.8;
 const PADDLE_Y_MAX = 2.8;
@@ -398,10 +406,10 @@ export default function MatchScene() {
     <group>
       <Table theme={theme} netHeight={netHeight} />
       <group ref={p1Ref} position={[0, 1.1, TABLE.PADDLE_Z]}>
-        <PaddleMesh color="#c8452f" />
+        <PaddleMesh color={me === 0 ? OWN_PADDLE : RIVAL_PADDLE} />
       </group>
       <group ref={p2Ref} position={[0, 1.1, -TABLE.PADDLE_Z]}>
-        <PaddleMesh color="#23283f" />
+        <PaddleMesh color={me === 1 ? OWN_PADDLE : RIVAL_PADDLE} />
       </group>
       <Trail
         width={1.1}

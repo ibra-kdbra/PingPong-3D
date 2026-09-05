@@ -11,8 +11,14 @@ if (import.meta.env.DEV) {
     import("./net/transport.js"),
     import("./net/session.js"),
     import("./game/match.js"),
-  ]).then(([transport, session, match]) => {
-    window.__net = { ...transport, ...session, createMatch: match.createMatch };
+    import("./net/current.js"),
+  ]).then(([transport, session, match, current]) => {
+    window.__net = {
+      ...transport,
+      ...session,
+      createMatch: match.createMatch,
+      current: current.net,
+    };
   });
 }
 
