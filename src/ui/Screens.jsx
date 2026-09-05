@@ -203,10 +203,11 @@ function RelaySettings() {
         </button>
       </form>
       <p className="field-note">
-        A free account at metered.ca or Cloudflare gives you one in a couple
-        of minutes. Share a link with <code>?ice=…</code> (or{" "}
-        <code>?turn=…&amp;turnuser=…&amp;turnpass=…</code>) and your friend
-        gets the same relay without typing anything.
+        A free metered.ca account gives you a credentials URL in a couple of
+        minutes. Providers that hand out credentials behind a login, like
+        Cloudflare, go in the fixed-relay fields instead. Share a link with{" "}
+        <code>?ice=…</code> (or <code>?turn=…&amp;turnuser=…&amp;turnpass=…</code>)
+        and your friend gets the same relay without typing anything.
       </p>
     </details>
   );
