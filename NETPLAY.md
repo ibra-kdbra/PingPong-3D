@@ -110,18 +110,28 @@ so the relay is treated as part of the product rather than a fallback.
 
 A credentials endpoint is the best option for a deployment: it is a URL
 that mints short-lived credentials on request, so nothing secret is
-baked into the bundle. Both the metered.ca response shape (a bare array)
-and the Cloudflare one (`{ iceServers: {...} }`) are understood. If the
-provider is slow or down the game degrades to the next source rather
-than failing to connect.
+baked into the bundle. The game fetches it with a plain `GET` and no
+headers, and accepts three response shapes — a bare array (metered.ca),
+`{ iceServers: [...] }`, and `{ iceServers: {...} }` for a single server.
+If the provider is slow or down the game degrades to the next source
+rather than failing to connect.
+
+That plain `GET` is the constraint worth knowing. metered.ca hands you a
+URL that satisfies it. Providers that mint credentials behind an
+authenticated `POST` — Cloudflare works this way — cannot be used here
+directly: either put a small proxy in front that turns the request into
+a `GET`, or generate credentials and set them as a fixed relay instead.
+Baking a provider API token into the bundle would defeat the point,
+since anyone can read it.
 
 ### Giving the published game a relay
 
 The Pages workflow passes four optional repository secrets into the
 build (`ICE_ENDPOINT`, `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`).
-Set `ICE_ENDPOINT` to a provider URL — a free metered.ca or Cloudflare
-account takes a couple of minutes — and every player gets a working
-relay without configuring anything. Leave them unset and the game still
+Set `ICE_ENDPOINT` to a credentials URL — a free metered.ca account
+gives you one in a couple of minutes — and every player gets a working
+relay without configuring anything. Or set `TURN_URLS` / `TURN_USERNAME`
+/ `TURN_CREDENTIAL` for a fixed relay. Leave them unset and the game still
 builds; it just falls back to the public relays.
 
 ### Why the public relays cannot be relied on

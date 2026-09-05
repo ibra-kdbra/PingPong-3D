@@ -52,13 +52,16 @@ TURN, so it tells you in about a second whether online play will work
 from where you are sitting — instead of finding out after a failed join.
 
 The game ships with public relays, but they are free, shared and
-best-effort. If the test fails, add one of your own in the same panel; a
-free account at metered.ca or Cloudflare takes a couple of minutes. Two
+best-effort. If the test fails, add one of your own in the same panel. Two
 ways to give it to the game:
 
-- **Credentials URL** — a provider URL that mints short-lived
-  credentials. Preferred: nothing long-lived is stored.
-- **A fixed relay** — address, username and password.
+- **Credentials URL** — a URL the game can `GET` that returns ICE servers
+  as JSON. Preferred: the credentials are short-lived and nothing
+  long-lived is stored. A free metered.ca account gives you one directly
+  (`https://YOUR-APP.metered.live/api/v1/turn/credentials?apiKey=…`).
+- **A fixed relay** — address, username and password. Use this for
+  providers that mint credentials behind an authenticated request rather
+  than a plain URL, Cloudflare among them.
 
 Either can travel in the link you send your friend, so only one of you
 has to set it up:
