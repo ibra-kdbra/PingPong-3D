@@ -7,6 +7,9 @@ export default {
         __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' '))
     },
     root: 'src/',
+    // Env lives at the repo root, not next to index.html, so VITE_TURN_*
+    // and VITE_ICE_ENDPOINT can be set in a root .env or by CI.
+    envDir: path.resolve(__dirname),
     publicDir: "../public/",
     base: './',
     resolve: {
