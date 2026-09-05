@@ -962,10 +962,34 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 12px;
 }
 
 .relay-form .btn {
   min-width: 0;
+}
+
+/* Labels sit tight to the field they name, not floating between two. */
+.relay-form .field-label {
+  margin-top: 4px;
+}
+
+.relay-form .field-label:first-child {
+  margin-top: 0;
+}
+
+.relay-ok {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #2f6b3a;
+  background: #12251a;
+  color: var(--good);
+  font-size: 0.9em;
+}
+
+.advanced .error {
+  margin-top: 10px;
 }
 
 .build {

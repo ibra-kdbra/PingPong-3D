@@ -94,15 +94,64 @@ browsers. Three outcomes, in order of preference:
    relay. Without a working relay ICE fails, which PeerJS reports as
    *"Negotiation of connection to … failed"*.
 
-PeerJS ships one STUN server plus its own free TURN relays, which are
-heavily rate-limited. We therefore configure several STUN servers and
-more than one TURN relay, including TLS on port 443 for networks that
-only allow HTTPS (`ICE_SERVERS` in `src/net/transport.js`).
+Roughly one connection in five needs case 3. That is not an edge case,
+so the relay is treated as part of the product rather than a fallback.
 
-Free relays are still best-effort. For a guaranteed connection, run your
-own `coturn` and put its URL and credentials in `ICE_SERVERS`; the same
-applies to the signalling server, where a self-hosted `peerjs-server`
-replaces the public one via `PEER_OPTIONS`.
+### Where a relay comes from
+
+`src/net/ice.js` assembles the ICE list from four sources, best first:
+
+| Order | Source | Set by |
+| --- | --- | --- |
+| 1 | The player's own relay | **Relay server** in the lobby, or `?turn=…&turnuser=…&turnpass=…` in the shared link |
+| 2 | A credentials endpoint | **Credentials URL** in the lobby, `?ice=…` in the link, or `VITE_ICE_ENDPOINT` |
+| 3 | A relay compiled into the build | `VITE_TURN_URLS` / `VITE_TURN_USERNAME` / `VITE_TURN_CREDENTIAL` |
+| 4 | Public relays | Built in, best-effort |
+
+A credentials endpoint is the best option for a deployment: it is a URL
+that mints short-lived credentials on request, so nothing secret is
+baked into the bundle. The game fetches it with a plain `GET` and no
+headers, and accepts three response shapes — a bare array (metered.ca),
+`{ iceServers: [...] }`, and `{ iceServers: {...} }` for a single server.
+If the provider is slow or down the game degrades to the next source
+rather than failing to connect.
+
+That plain `GET` is the constraint worth knowing. metered.ca hands you a
+URL that satisfies it. Providers that mint credentials behind an
+authenticated `POST` — Cloudflare works this way — cannot be used here
+directly: either put a small proxy in front that turns the request into
+a `GET`, or generate credentials and set them as a fixed relay instead.
+Baking a provider API token into the bundle would defeat the point,
+since anyone can read it.
+
+### Giving the published game a relay
+
+The Pages workflow passes four optional repository secrets into the
+build (`ICE_ENDPOINT`, `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`).
+Set `ICE_ENDPOINT` to a credentials URL — a free metered.ca account
+gives you one in a couple of minutes — and every player gets a working
+relay without configuring anything. Or set `TURN_URLS` / `TURN_USERNAME`
+/ `TURN_CREDENTIAL` for a fixed relay. Leave them unset and the game still
+builds; it just falls back to the public relays.
+
+### Why the public relays cannot be relied on
+
+They are free, shared and rate-limited, and they come and go: the TURN
+hosts PeerJS used to ship (`eu-0.turn.peerjs.com`, `us-0.turn.peerjs.com`)
+no longer resolve at all. A hostname that fails to resolve is not merely
+useless — the browser waits on it during every gathering pass — so the
+list is kept to hosts that answer, with `turns:` on 443 first because TLS
+on the HTTPS port is what survives locked-down networks.
+
+### Knowing before you play
+
+**Test relay** in the lobby runs a real ICE gathering pass with
+`iceTransportPolicy: "relay"`, so a candidate can only come from TURN.
+One arriving proves the relay works end to end, on that player's own
+network and firewall. It reports the round-trip time on success, and on
+failure distinguishes "the relay rejected these credentials" (a 401
+during gathering) from "nothing answered". That turns a 30-second failed
+join into a two-second answer.
 
 ## Security posture
 
@@ -126,3 +175,24 @@ server with `configureSignalling({ host, port, path, secure })`, run
 the actual PeerJS client, RTCPeerConnection and DataChannel end to end —
 create a room, join by code, play a full match, rematch, disconnect —
 without touching the public server.
+
+A sixty-second two-session soak is the test that catches what unit tests
+cannot: score and phase agreement sampled once a second, ball divergence
+between the host's engine and the guest's shadow, latency drift, heap
+growth and frame times. It is also how the ordering bug below was
+confirmed fixed — the harness hooks `RTCPeerConnection.createDataChannel`
+and asserts the channel really is created ordered.
+
+## Two failures worth remembering
+
+**The channel was unordered.** PeerJS creates the data channel as
+`{ ordered: !!options.reliable }`, and `reliable` is not passed by
+default. Snapshots carry the score and the phase, so a snapshot
+overtaking a newer one visibly rewound the game. The channel now asks
+for `reliable: true`, *and* every snapshot is numbered so the guest can
+drop stale ones — a protocol that only works because the transport is
+polite is a protocol waiting to break.
+
+**A closed tab took five seconds to notice.** Nothing sent a goodbye, so
+the peer waited out the full heartbeat timeout. Closing the connection
+on `pagehide` cut that to about 130 ms, measured.

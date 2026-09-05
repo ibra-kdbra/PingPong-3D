@@ -129,35 +129,55 @@ function MapScreen() {
 
 
 function RelaySettings() {
-  const turn = useStore((state) => state.online.turn);
-  const { setTurn } = useStore((state) => state.api);
+  const { turn, endpoint, relay, testing } = useStore((state) => state.online);
+  const { setTurn, setIceEndpoint, testRelay } = useStore((state) => state.api);
   const [urls, setUrls] = useState(turn?.urls || "");
   const [username, setUsername] = useState(turn?.username || "");
   const [credential, setCredential] = useState(turn?.credential || "");
+  const [api, setApi] = useState(endpoint || "");
   const [saved, setSaved] = useState(false);
 
   const apply = (e) => {
     e.preventDefault();
     setTurn(urls.trim() ? { urls, username, credential } : null);
+    setIceEndpoint(api);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const configured = Boolean(turn || endpoint);
+
   return (
     <details className="advanced">
       <summary>
-        Advanced — relay server
-        {turn && <span className="tag">in use</span>}
+        Relay server
+        {configured && <span className="tag">in use</span>}
       </summary>
       <p className="field-note">
-        If a direct connection keeps failing, a TURN relay forwards the
-        traffic. Free accounts at providers like metered.ca or Cloudflare
-        give you one in a couple of minutes; paste its address and
-        credentials here. You can also share a link containing{" "}
-        <code>?turn=…&amp;turnuser=…&amp;turnpass=…</code> so your friend
-        gets the same relay automatically.
+        Most connections go straight between the two of you. When a network
+        forbids that — mobile data, office or campus Wi-Fi, a VPN — a relay
+        has to forward the traffic instead. Test yours before you invite
+        anyone.
       </p>
+
+      <button className="btn btn-mode" onClick={testRelay} disabled={testing}>
+        {testing ? "Testing…" : "Test relay"}
+      </button>
+      {relay && (
+        <p className={relay.ok ? "relay-ok" : "error"} aria-live="polite">
+          {relay.text}
+        </p>
+      )}
+
       <form className="relay-form" onSubmit={apply}>
+        <span className="field-label">Credentials URL</span>
+        <input
+          className="input"
+          placeholder="https://…/turn/credentials?apiKey=…"
+          value={api}
+          onChange={(e) => setApi(e.target.value)}
+        />
+        <span className="field-label">…or a fixed relay</span>
         <input
           className="input"
           placeholder="turn:relay.example.com:3478"
@@ -179,9 +199,16 @@ function RelaySettings() {
           />
         </div>
         <button className="btn btn-mode" type="submit">
-          {saved ? "Saved" : urls.trim() ? "Save relay" : "Clear relay"}
+          {saved ? "Saved" : "Save"}
         </button>
       </form>
+      <p className="field-note">
+        A free metered.ca account gives you a credentials URL in a couple of
+        minutes. Providers that hand out credentials behind a login, like
+        Cloudflare, go in the fixed-relay fields instead. Share a link with{" "}
+        <code>?ice=…</code> (or <code>?turn=…&amp;turnuser=…&amp;turnpass=…</code>)
+        and your friend gets the same relay without typing anything.
+      </p>
     </details>
   );
 }

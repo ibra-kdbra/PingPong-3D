@@ -21,7 +21,14 @@ const {
   loadTurn,
   saveTurn,
   turnFromUrl,
+  loadEndpoint,
+  saveEndpoint,
+  endpointFromUrl,
+  resolveIce,
+  probeRelay,
 } = await import("../src/net/transport.js");
+const { parseIceResponse, fetchIceServers, clearIceCache, candidateErrorText } =
+  await import("../src/net/ice.js");
 import { createHost, createGuest, PROTOCOL_VERSION } from "../src/net/session.js";
 
 const STEP = 1 / 120;
@@ -92,7 +99,9 @@ test("guest input drives player 2 on the host", () => {
 });
 
 test("snapshots and events reach the guest and the shadow follows the ball", () => {
-  const { c, host, guest, match, flushAll } = setup();
+  const { c, a, host, guest, match, flushAll } = setup();
+  /** Put a raw message on the wire, exactly as the host would. */
+  const wire = (msg) => { a.send(msg); flushAll(); };
   const input = idle();
   const events = new Array(16);
   const seen = new Set();
@@ -310,7 +319,14 @@ test("a player's own relay is stored and tried first", () => {
   saveTurn(mine);
   assert.deepEqual(loadTurn(), mine);
   const list = iceServers();
-  assert.deepEqual(list[0], mine, "the player's relay is preferred");
+  const relays = list.filter((s) =>
+    [].concat(s.urls).some((u) => u.startsWith("turn"))
+  );
+  assert.deepEqual(
+    relays[0],
+    { urls: [mine.urls], username: "u", credential: "p" },
+    "the player's relay comes before the public ones"
+  );
   assert.equal(list.length, ICE_SERVERS.length + 1);
 
   saveTurn(null);
@@ -337,4 +353,217 @@ test("corrupt stored relay data does not break startup", () => {
   localStorage.setItem("pingpong3d.turn", JSON.stringify({ username: "u" }));
   assert.equal(loadTurn(), null, "an entry with no urls is ignored");
   localStorage.clear();
+});
+
+test("dead relay hosts are not shipped", () => {
+  // A hostname that no longer resolves is not free: the browser waits on
+  // it during every gathering pass. peerjs' TURN hosts stopped existing.
+  const urls = ICE_SERVERS.flatMap((s) => [].concat(s.urls));
+  for (const gone of ["eu-0.turn.peerjs.com", "us-0.turn.peerjs.com"]) {
+    assert.ok(!urls.some((u) => u.includes(gone)), `${gone} must not be listed`);
+  }
+});
+
+test("a TLS relay on 443 is offered, for networks that only allow HTTPS", () => {
+  const urls = ICE_SERVERS.flatMap((s) => [].concat(s.urls));
+  assert.ok(
+    urls.some((u) => u.startsWith("turns:") && u.includes(":443")),
+    "needs turns: on 443"
+  );
+});
+
+test("credentials from a provider are understood in every shape they come in", () => {
+  // metered: a bare array
+  assert.deepEqual(
+    parseIceResponse([
+      { urls: "stun:stun.relay.metered.ca:80" },
+      { urls: "turn:global.relay.metered.ca:80", username: "u", credential: "p" },
+    ]),
+    [
+      { urls: ["stun:stun.relay.metered.ca:80"] },
+      { urls: ["turn:global.relay.metered.ca:80"], username: "u", credential: "p" },
+    ]
+  );
+  // cloudflare: one object under iceServers
+  assert.deepEqual(
+    parseIceResponse({
+      iceServers: { urls: ["turn:turn.cloudflare.com:3478"], username: "u", credential: "p" },
+    }),
+    [{ urls: ["turn:turn.cloudflare.com:3478"], username: "u", credential: "p" }]
+  );
+  // the plain RTCConfiguration shape
+  assert.deepEqual(parseIceResponse({ iceServers: [{ urls: "turn:a.example:3478" }] }), [
+    { urls: ["turn:a.example:3478"] },
+  ]);
+  assert.deepEqual(parseIceResponse(null), []);
+  assert.deepEqual(parseIceResponse({ error: "nope" }), []);
+});
+
+test("a provider that is down never blocks a connection", async () => {
+  clearIceCache();
+  assert.deepEqual(await fetchIceServers("https://relay.example/creds", {
+    fetcher: async () => { throw new Error("offline"); },
+  }), [], "a thrown fetch degrades to nothing");
+
+  clearIceCache();
+  assert.deepEqual(await fetchIceServers("https://relay.example/creds", {
+    fetcher: async () => ({ ok: false, status: 500 }),
+  }), [], "a 500 degrades to nothing");
+
+  clearIceCache();
+  assert.deepEqual(await fetchIceServers("", {}), [], "no endpoint, no request");
+});
+
+test("fetched credentials are cached briefly, then refetched", async () => {
+  clearIceCache();
+  let calls = 0;
+  const fetcher = async () => {
+    calls++;
+    return { ok: true, json: async () => [{ urls: "turn:a.example:3478", username: "u", credential: "p" }] };
+  };
+  let clock = 1000;
+  const now = () => clock;
+  await fetchIceServers("https://relay.example/creds", { fetcher, now });
+  await fetchIceServers("https://relay.example/creds", { fetcher, now });
+  assert.equal(calls, 1, "the second call is served from cache");
+  clock += 6 * 60 * 1000;
+  await fetchIceServers("https://relay.example/creds", { fetcher, now });
+  assert.equal(calls, 2, "credentials expire, so they are fetched again");
+  clearIceCache();
+});
+
+test("a fetched relay outranks the public ones but not the player's own", async () => {
+  localStorage.clear();
+  clearIceCache();
+  const fetched = { urls: "turn:fetched.example:3478", username: "f", credential: "f" };
+  const fetcher = async () => ({ ok: true, json: async () => [fetched] });
+  const withFetched = await resolveIce({ endpoint: "https://relay.example/creds", fetcher });
+  const relayUrls = withFetched
+    .filter((s) => s.urls.some((u) => u.startsWith("turn")))
+    .map((s) => s.urls[0]);
+  assert.equal(relayUrls[0], "turn:fetched.example:3478");
+
+  clearIceCache();
+  const mine = { urls: "turn:mine.example:3478", username: "m", credential: "m" };
+  const both = await resolveIce({ turn: mine, endpoint: "https://relay.example/creds", fetcher });
+  const bothUrls = both
+    .filter((s) => s.urls.some((u) => u.startsWith("turn")))
+    .map((s) => s.urls[0]);
+  assert.deepEqual(bothUrls.slice(0, 2), ["turn:mine.example:3478", "turn:fetched.example:3478"]);
+  clearIceCache();
+  localStorage.clear();
+});
+
+test("a credentials URL can travel in the shared link and be stored", () => {
+  localStorage.clear();
+  assert.equal(endpointFromUrl("?code=ABC"), "");
+  assert.equal(
+    endpointFromUrl("?ice=https%3A%2F%2Frelay.example%2Fcreds"),
+    "https://relay.example/creds"
+  );
+  saveEndpoint("https://relay.example/creds");
+  assert.equal(loadEndpoint(), "https://relay.example/creds");
+  saveEndpoint("");
+  assert.equal(loadEndpoint(), "");
+  localStorage.clear();
+});
+
+test("the relay test reports a relayed address, or why there wasn't one", async () => {
+  const relay = { urls: ["turn:a.example:3478"], username: "u", credential: "p" };
+
+  // A relay that answers.
+  const Working = class {
+    constructor() { this.listeners = {}; }
+    addEventListener(type, cb) { (this.listeners[type] ||= []).push(cb); }
+    createDataChannel() {}
+    async createOffer() { return {}; }
+    async setLocalDescription() {
+      for (const cb of this.listeners.icecandidate || []) {
+        cb({ candidate: { candidate: "candidate:1 1 udp 1 3.4.5.6 5000 typ relay", url: "turn:a.example:3478" } });
+      }
+    }
+    close() {}
+  };
+  const good = await probeRelay([relay], { RTC: Working, timeout: 500 });
+  assert.equal(good.ok, true);
+  assert.equal(good.server, "turn:a.example:3478");
+
+  // A relay that rejects the credentials.
+  const Rejecting = class extends Working {
+    async setLocalDescription() {
+      for (const cb of this.listeners.icecandidateerror || []) {
+        cb({ errorCode: 401, errorText: "Unauthorized", url: "turn:a.example:3478" });
+      }
+    }
+  };
+  const bad = await probeRelay([relay], { RTC: Rejecting, timeout: 200 });
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /rejected these credentials/);
+
+  // Nothing configured at all.
+  const none = await probeRelay([{ urls: ["stun:only.example:3478"] }], { RTC: Working });
+  assert.equal(none.ok, false);
+  assert.match(none.reason, /No relay is configured/);
+
+  assert.match(candidateErrorText(701, ""), /could not be reached/);
+});
+
+test("a snapshot that arrives late never rewinds the game", () => {
+  // PeerJS builds the data channel as { ordered: !!options.reliable }, so
+  // for a long time this game ran on an unordered channel and a stale
+  // snapshot could roll the score backwards on the guest's screen. The
+  // channel is ordered now; this proves the protocol survives even if it
+  // weren't.
+  const { c, a, host, guest, match, flushAll } = setup();
+  /** Put a raw message on the wire, exactly as the host would. */
+  const wire = (msg) => { a.send(msg); flushAll(); };
+  const input = idle();
+  host.applyRemoteInput(input);
+  for (let i = 0; i < 40; i++) {
+    c.advance(STEP);
+    const n = match.step(STEP, input);
+    host.afterStep(match.drainEvents(), n);
+  }
+  flushAll();
+
+  const fresh = {
+    t: "snap",
+    n: 500,
+    ts: 9,
+    ball: [1, 2, 3, 0, 0, 0, 0, 0],
+    p: [0, 0, 0, 0],
+    ph: "rally",
+    srv: 1,
+    sc: [5, 2],
+    rally: 9,
+  };
+  wire(fresh);
+  assert.deepEqual([...guest.state.scores], [5, 2]);
+
+  // The same snapshot again, and an older one: both must be ignored.
+  wire({ ...fresh, sc: [0, 0], rally: 0 });
+  assert.deepEqual([...guest.state.scores], [5, 2], "a duplicate changes nothing");
+  wire({ ...fresh, n: 499, sc: [1, 1], rally: 1 });
+  assert.deepEqual([...guest.state.scores], [5, 2], "an older snapshot is dropped");
+
+  // A newer one is applied as normal.
+  wire({ ...fresh, n: 501, sc: [5, 3] });
+  assert.deepEqual([...guest.state.scores], [5, 3]);
+});
+
+test("a snapshot from before a rematch cannot un-reset the score", () => {
+  const { a, guest, flushAll } = setup();
+  const wire = (msg) => { a.send(msg); flushAll(); };
+  const snap = (n, sc) => ({
+    t: "snap", n, ts: 1, ball: [0, 1, 0, 0, 0, 0, 0, 0],
+    p: [0, 0, 0, 0], ph: "rally", srv: 1, sc, rally: 0,
+  });
+  wire(snap(10, [7, 4]));
+  assert.deepEqual([...guest.state.scores], [7, 4]);
+  wire({ t: "restart", n: 12 });
+  assert.deepEqual([...guest.state.scores], [0, 0], "the rematch clears the score");
+  wire(snap(11, [7, 4]));
+  assert.deepEqual([...guest.state.scores], [0, 0], "a straggler from the old game is ignored");
+  wire(snap(13, [0, 1]));
+  assert.deepEqual([...guest.state.scores], [0, 1], "the new game still updates");
 });
