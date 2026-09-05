@@ -40,6 +40,25 @@ The solo survival mode: keep the ball on your paddle through 8 levels of
 rising gravity, wind, and shrinking balls. Combo multipliers, 3 lives,
 persistent best score.
 
+## If online play won't connect
+
+Online play is peer-to-peer, so the two browsers must find a network path
+to each other. Direct works on most home connections; mobile data, work
+or campus Wi-Fi and VPNs commonly block it and need a **relay** (TURN).
+
+The game ships with public relays, but they are free and best-effort. If
+you see *"No relay server answered"*, open **Advanced — relay server** in
+the online lobby and paste one of your own: free accounts at providers
+like metered.ca or Cloudflare take a couple of minutes. You can also send
+your friend a link carrying the relay so you both use it:
+
+```
+https://ibra-kdbra.github.io/PingPong-3D/?turn=turn:HOST:3478&turnuser=USER&turnpass=SECRET
+```
+
+The lobby footer shows the build date — handy for checking both players
+are on the same version after an update.
+
 ## Techniques
 
 | Input | Shot |

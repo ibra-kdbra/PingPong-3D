@@ -3,7 +3,14 @@ import { LEVELS, MAX_LEVEL } from "./levels.js";
 import { STAGES, starsFor } from "./stages.js";
 import { audio } from "./audio.js";
 import { net, resetNet } from "../net/current.js";
-import { makeRoomCode, createPeerHost, createPeerGuest } from "../net/transport.js";
+import {
+  makeRoomCode,
+  createPeerHost,
+  createPeerGuest,
+  loadTurn,
+  saveTurn,
+  turnFromUrl,
+} from "../net/transport.js";
 import { createHost, createGuest } from "../net/session.js";
 import { createMatch } from "./match.js";
 
@@ -89,6 +96,8 @@ export const useStore = create((set, get) => {
       latency: 0,
       rematch: { me: false, them: false },
       name: loadName(),
+      /** A TURN relay the player supplied, or null. */
+      turn: loadTurn(),
     },
 
     // --- keep-up mode ---
@@ -399,11 +408,39 @@ export const useStore = create((set, get) => {
 
       openOnline() {
         resetNet();
+        // A relay can arrive in the shared link, so both players get it
+        // from one URL rather than typing it twice.
+        const fromUrl =
+          typeof location !== "undefined" ? turnFromUrl(location.search) : null;
+        if (fromUrl) saveTurn(fromUrl);
         set((s) => ({
           phase: "online",
           mode: "online",
-          online: { ...s.online, role: null, status: "idle", code: "", error: "", rematch: { me: false, them: false } },
+          online: {
+            ...s.online,
+            role: null,
+            status: "idle",
+            code: "",
+            error: "",
+            note: "",
+            turn: loadTurn(),
+            rematch: { me: false, them: false },
+          },
         }));
+      },
+
+      /** Store (or clear) the player's own TURN relay. */
+      setTurn(turn) {
+        const clean =
+          turn && turn.urls
+            ? {
+                urls: String(turn.urls).trim(),
+                username: String(turn.username || "").trim(),
+                credential: String(turn.credential || "").trim(),
+              }
+            : null;
+        saveTurn(clean);
+        get().api.setOnline({ turn: clean });
       },
 
       /** Wire a connected transport into a session and start the match. */
