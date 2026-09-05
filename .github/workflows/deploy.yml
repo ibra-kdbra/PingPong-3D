@@ -29,6 +29,15 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # Optional: a TURN relay for the published game, so players on
+          # networks that block peer-to-peer can still play without setting
+          # up a relay of their own. Unset simply falls back to the
+          # best-effort public relays. See NETPLAY.md.
+          VITE_ICE_ENDPOINT: ${{ secrets.ICE_ENDPOINT }}
+          VITE_TURN_URLS: ${{ secrets.TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ secrets.TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.TURN_CREDENTIAL }}
       - uses: actions/configure-pages@v5
         with:
           enablement: true
