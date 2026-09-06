@@ -32,6 +32,38 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Whether the relay secrets reached the build. Never prints a value:
+      # a credentials URL carries an API key, and workflow logs are public
+      # on a public repository. Length and host are enough to tell a set
+      # secret from an unset one, and a TURN endpoint from a pasted room
+      # URL — the two mistakes that are otherwise invisible until a player
+      # fails to connect.
+      - name: Check relay configuration
+        env:
+          ICE_ENDPOINT: ${{ secrets.ICE_ENDPOINT }}
+          TURN_URLS: ${{ secrets.TURN_URLS }}
+        run: |
+          if [ -n "$ICE_ENDPOINT" ]; then
+            echo "ICE_ENDPOINT: set (${#ICE_ENDPOINT} chars)"
+            echo "  host: $(printf '%s' "$ICE_ENDPOINT" | sed -E 's#^https?://([^/?]+).*#\1#')"
+            echo "  path: $(printf '%s' "$ICE_ENDPOINT" | sed -E 's#^https?://[^/?]+([^?]*).*#\1#')"
+            case "$ICE_ENDPOINT" in
+              *"/api/v1/turn/credentials"*) echo "  -> looks like a Metered TURN credentials endpoint" ;;
+              *) echo "  -> WARNING: not a /api/v1/turn/credentials path. A room URL or dashboard link will not return ICE servers." ;;
+            esac
+            case "$ICE_ENDPOINT" in
+              *"apiKey="*) echo "  -> apiKey parameter present" ;;
+              *) echo "  -> WARNING: no apiKey parameter; the provider will refuse the request." ;;
+            esac
+          else
+            echo "ICE_ENDPOINT: NOT SET - the build falls back to the public best-effort relays."
+          fi
+          if [ -n "$TURN_URLS" ]; then
+            echo "TURN_URLS: set (${#TURN_URLS} chars)"
+          else
+            echo "TURN_URLS: not set"
+          fi
+
       - run: npm run build
         env:
           # Optional: a TURN relay for the published game, so players on
