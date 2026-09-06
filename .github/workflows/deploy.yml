@@ -1,11 +1,15 @@
 # Build the game and publish it to GitHub Pages.
-# Runs for main (production) and game-overhaul (preview of the PR branch);
-# the most recent push wins the single Pages site.
+#
+# main only. Pages serves one site per repository, so any other branch
+# listed here does not get a preview — it overwrites production with
+# whatever was last pushed. Branch previews come from Vercel instead, at
+# ping-pong-fdbw-git-<branch>-….vercel.app, which builds per branch and
+# cannot touch the live site.
 name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, game-overhaul]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
