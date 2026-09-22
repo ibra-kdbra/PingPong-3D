@@ -1,11 +1,11 @@
 import { useFrame } from "@react-three/fiber";
 import { Trail } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
-import { createMatch, makeAI, TABLE, BALL_RADIUS, TECH } from "../game/match.js";
+import { createMatch, makeAI, TABLE, BALL_RADIUS, TECH, DEPTH } from "../game/match.js";
 import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore } from "../game/store.js";
 import { audio } from "../game/audio.js";
-import { kick } from "../game/fx.js";
+import { fx, kick } from "../game/fx.js";
 import { net } from "../net/current.js";
 
 const HALF_W = TABLE.WIDTH / 2;
@@ -29,6 +29,18 @@ const RIVAL_PADDLE = "#4a5578";
 /** Paddle height range driven by pointer height. */
 const PADDLE_Y_MIN = 0.8;
 const PADDLE_Y_MAX = 2.8;
+
+/**
+ * Stepping in and back. Keys walk the wanted depth at DEPTH_WALK units/s;
+ * each wheel notch jumps it by DEPTH_NOTCH. The paddle then glides there
+ * no faster than DEPTH_GLIDE, so a wheel flick reads as a step rather
+ * than a teleport, while held keys (slower than the glide) feel direct.
+ */
+const DEPTH_WALK = 6;
+const DEPTH_NOTCH = 0.6;
+const DEPTH_GLIDE = 9;
+const clampDepth = (v) => Math.max(DEPTH.MIN, Math.min(DEPTH.MAX, v));
+const glide = (from, to, max) => (Math.abs(to - from) <= max ? to : from + Math.sign(to - from) * max);
 
 function Table({ theme, netHeight }) {
   return (
@@ -133,6 +145,9 @@ export default function MatchScene() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
+  // Dev builds only, like window.__game: lets a browser test read the
+  // engine it is playing against. Stripped from production.
+  if (import.meta.env.DEV) window.__match = match;
   const netHeight = match ? match.state.config.netHeight : session.state.cfg.netHeight;
   const guestRally = useRef(0);
   const latencySync = useRef(0);
@@ -151,6 +166,12 @@ export default function MatchScene() {
     left: false, right: false, up: false, down: false,
     p2brush: false, p2loop: false, p2chop: false,
     space: false, lmb: false, rmb: false,
+    fwd: false, back: false, p2fwd: false, p2back: false,
+  });
+  /** Where each player stands (distance from the net) and wants to. */
+  const depth = useRef({
+    p1: DEPTH.HOME, p1Want: DEPTH.HOME,
+    p2: DEPTH.HOME, p2Want: DEPTH.HOME,
   });
   const prevP1 = useRef(0);
   const ringAge = useRef(RING_LIFE);
@@ -168,7 +189,15 @@ export default function MatchScene() {
         k.space = v;
         if (useStore.getState().phase === "playing") e.preventDefault();
       }
-      if (mode !== "versus") return;
+      // Solo modes: the keyboard is free, so W/S (or the arrows) step you
+      // in and back. In versus those keys belong to player 2.
+      if (mode !== "versus") {
+        if (key === "w" || key === "arrowup") k.fwd = v;
+        if (key === "s" || key === "arrowdown") k.back = v;
+        return;
+      }
+      if (key === "r") k.p2fwd = v;
+      if (key === "f") k.p2back = v;
       if (key === "a" || key === "arrowleft") k.left = v;
       if (key === "d" || key === "arrowright") k.right = v;
       if (key === "w" || key === "arrowup") k.up = v;
@@ -190,6 +219,15 @@ export default function MatchScene() {
     const noMenu = (e) => {
       if (useStore.getState().phase === "playing") e.preventDefault();
     };
+    // The wheel steps the mouse player in (scroll up, toward the net) and
+    // back — the one depth control that needs no second hand, so it works
+    // in versus too, where the keyboard belongs to player 2.
+    const wheel = (e) => {
+      if (useStore.getState().phase !== "playing") return;
+      e.preventDefault();
+      const d = depth.current;
+      d.p1Want = clampDepth(d.p1Want + Math.sign(e.deltaY) * DEPTH_NOTCH);
+    };
     // Don't let a focused menu button eat Space/Enter during play.
     document.activeElement?.blur?.();
     window.addEventListener("keydown", down);
@@ -197,14 +235,22 @@ export default function MatchScene() {
     window.addEventListener("pointerdown", pointerDown);
     window.addEventListener("pointerup", pointerUp);
     window.addEventListener("contextmenu", noMenu);
+    // Not passive: without preventDefault the wheel would scroll the page.
+    window.addEventListener("wheel", wheel, { passive: false });
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       window.removeEventListener("pointerdown", pointerDown);
       window.removeEventListener("pointerup", pointerUp);
       window.removeEventListener("contextmenu", noMenu);
+      window.removeEventListener("wheel", wheel);
     };
   }, [mode, keys]);
+
+  // Leaving a match must hand the camera back at its normal distance.
+  useEffect(() => () => {
+    fx.depth = 0;
+  }, []);
 
   const ring = (x, y, z) => {
     if (!ringRef.current) return;
@@ -240,8 +286,17 @@ export default function MatchScene() {
       : 0;
     input.p1tech = k.rmb ? TECH.LOOP : k.space ? TECH.CHOP : TECH.DRIVE;
 
+    // Depth: keys walk where you want to stand, the wheel jumps it, and
+    // the paddle glides there. The camera follows, so stepping back is
+    // felt as a step back rather than seen as a paddle shrinking.
+    const d = depth.current;
+    d.p1Want = clampDepth(d.p1Want + ((k.back ? 1 : 0) - (k.fwd ? 1 : 0)) * DEPTH_WALK * dt);
+    d.p1 = glide(d.p1, d.p1Want, DEPTH_GLIDE * dt);
+    input.p1z = d.p1;
+    fx.depth = d.p1 - DEPTH.HOME;
+
     // Player 2 (versus): keyboard. Shift while moving brushes, E loops,
-    // Q chops.
+    // Q chops, R/F step in and back.
     if (mode === "versus") {
       const vx = (k.right ? P2_SPEED : 0) - (k.left ? P2_SPEED : 0);
       input.p2x = Math.max(-P1_RANGE, Math.min(P1_RANGE, input.p2x + vx * dt));
@@ -252,6 +307,9 @@ export default function MatchScene() {
       );
       input.p2spin = k.p2brush && vx !== 0 ? Math.sign(vx) : 0;
       input.p2tech = k.p2loop ? TECH.LOOP : k.p2chop ? TECH.CHOP : TECH.DRIVE;
+      d.p2Want = clampDepth(d.p2Want + ((k.p2back ? 1 : 0) - (k.p2fwd ? 1 : 0)) * DEPTH_WALK * dt);
+      d.p2 = glide(d.p2, d.p2Want, DEPTH_GLIDE * dt);
+      input.p2z = d.p2;
     }
 
     let ball;
@@ -264,13 +322,16 @@ export default function MatchScene() {
       const wx = -input.p1x;
       const wvx = -input.p1vx;
       const wspin = -input.p1spin;
-      session.sendInput(wx, wvx, input.p1aim, wspin, input.p1tech);
+      // Depth is a distance from the net, the same on both sides, so it
+      // crosses the mirror unchanged.
+      session.sendInput(wx, wvx, input.p1aim, wspin, input.p1tech, input.p1z);
       session.update(dt);
       ball = session.shadow.ball;
       paddles = session.shadow.paddles;
       // Own paddle is predicted locally: no waiting for the round trip.
       paddles[1].x = wx;
       paddles[1].vx = wvx;
+      paddles[1].z = -input.p1z;
       n = session.drainEvents(events);
       if (session.state.rally > guestRally.current) guestRally.current = session.state.rally;
     } else {

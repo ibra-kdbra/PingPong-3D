@@ -11,10 +11,19 @@ import Ball from "./Ball.jsx";
 import MatchScene from "./MatchScene.jsx";
 import Paddle from "./Paddle.jsx";
 
-/** Subtle mouse parallax around a per-mode camera base, plus impact shake. */
-function CameraRig({ base, look, mirror = false }) {
+/**
+ * How much of the player's step the camera takes with it. Most of it, so
+ * your paddle keeps its size and the table recedes — which is what stepping
+ * back looks like — but not all, so the move still reads on screen.
+ */
+const DEPTH_FOLLOW = 0.85;
+
+/** Subtle mouse parallax around a per-mode camera base, plus impact shake.
+ *  `follow` makes it step in and back with the local player. */
+function CameraRig({ base, look, mirror = false, follow = false }) {
   useFrame((state, delta) => {
     const { camera, pointer } = state;
+    if (import.meta.env.DEV) window.__camera = camera;
     camera.position.x = MathUtils.lerp(
       camera.position.x,
       base[0] + pointer.x * (mirror ? -1.2 : 1.2),
@@ -25,7 +34,11 @@ function CameraRig({ base, look, mirror = false }) {
       base[1] + pointer.y * 0.7,
       0.04
     );
-    camera.position.z = MathUtils.lerp(camera.position.z, base[2], 0.08);
+    camera.position.z = MathUtils.lerp(
+      camera.position.z,
+      base[2] + (follow ? fx.depth * DEPTH_FOLLOW : 0),
+      0.08
+    );
     camera.lookAt(look[0], look[1], look[2]);
     if (fx.shake > 0.001) {
       const s = fx.shake * 0.25;
@@ -143,7 +156,7 @@ export default function Scene() {
       <Environment theme={theme} accentLight={theme.accent} />
       {inMatch ? (
         <>
-          <CameraRig base={[0, 7.5, 16.5]} look={[0, 0.5, -2]} mirror={guestView} />
+          <CameraRig base={[0, 7.5, 16.5]} look={[0, 0.5, -2]} mirror={guestView} follow />
           <group rotation={[0, guestView ? Math.PI : 0, 0]}>
             <MatchScene key={matchKey} />
           </group>
