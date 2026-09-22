@@ -2,7 +2,8 @@ import { MAX_LEVEL } from "../game/levels.js";
 import { useEffect, useState } from "react";
 import { STAGES } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
-import { PauseIcon, PlayIcon, SoundIcon, MutedIcon } from "./icons.jsx";
+import { PauseIcon, PlayIcon, SoundIcon, MutedIcon, StepInIcon, StepBackIcon } from "./icons.jsx";
+import { touchSteps, releaseSteps, prefersTouch } from "../game/touchControls.js";
 
 function Lives() {
   const lives = useStore((state) => state.lives);
@@ -135,7 +136,7 @@ function MatchHUD() {
  * Control legend: shown for the first seconds of a match, then hidden;
  * H brings it back. Keeps the HUD quiet during play.
  */
-function Legend({ mode }) {
+function Legend({ mode, touch }) {
   const matchKey = useStore((state) => state.matchKey);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
@@ -151,7 +152,17 @@ function Legend({ mode }) {
     };
   }, [matchKey]);
   if (!visible) return null;
-  const p1 = (
+  // On a touchscreen only list what a finger can do: there is no right
+  // button, no Space and no H/P/M keys to press.
+  const p1 = touch ? (
+    <div className="legend-row">
+      <span className="legend-tag">{mode === "versus" ? "P1" : "You"}</span>
+      <span>drag to move</span>
+      <span>higher to lob</span>
+      <span>swipe fast to smash</span>
+      <span>hold the arrows to step</span>
+    </div>
+  ) : (
     <div className="legend-row">
       <span className="legend-tag">{mode === "versus" ? "P1" : "You"}</span>
       <span>mouse moves</span>
@@ -180,11 +191,94 @@ function Legend({ mode }) {
           <span><kbd>R</kbd><kbd>F</kbd> step</span>
         </div>
       )}
-      <div className="legend-row legend-quiet">
-        <span><kbd>H</kbd> hide</span>
-        <span><kbd>P</kbd> pause</span>
-        <span><kbd>M</kbd> mute</span>
-      </div>
+      {!touch && (
+        <div className="legend-row legend-quiet">
+          <span><kbd>H</kbd> hide</span>
+          <span><kbd>P</kbd> pause</span>
+          <span><kbd>M</kbd> mute</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** True on a touch-first device, or from the first real touch onward. */
+function useTouch() {
+  const [touch, setTouch] = useState(prefersTouch);
+  useEffect(() => {
+    if (touch) return;
+    const onPointer = (e) => {
+      if (e.pointerType === "touch") setTouch(true);
+    };
+    window.addEventListener("pointerdown", onPointer);
+    return () => window.removeEventListener("pointerdown", onPointer);
+  }, [touch]);
+  return touch;
+}
+
+/**
+ * Hold-to-step buttons for touch screens: the thumb that isn't steering
+ * walks you in toward the net or back from the table, exactly as holding
+ * W or S does.
+ *
+ * Every touch here is kept to itself. The match listens for pointer
+ * presses on the whole window and reads any touch as the left mouse
+ * button — which means "curve" — so without this a thumb resting on a
+ * step button would put curve on every stroke, and lifting it would
+ * cancel a curve the other finger was still holding.
+ */
+function StepButton({ dir, label, children }) {
+  const [held, setHeld] = useState(false);
+  const set = (v) => {
+    touchSteps[dir] = v;
+    setHeld(v);
+  };
+  const keep = (e) => e.stopPropagation();
+  return (
+    <button
+      type="button"
+      className={held ? "step-btn step-held" : "step-btn"}
+      aria-label={label}
+      onPointerDown={(e) => {
+        keep(e);
+        e.preventDefault();
+        // Keep receiving this finger even if it slides off the button,
+        // so lifting it anywhere stops the walk.
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        set(true);
+      }}
+      onPointerMove={keep}
+      onPointerUp={(e) => { keep(e); set(false); }}
+      onPointerCancel={(e) => { keep(e); set(false); }}
+      onLostPointerCapture={() => set(false)}
+      onContextMenu={(e) => { keep(e); e.preventDefault(); }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StepControls() {
+  // Let go of everything if the page loses focus mid-step (a call, a
+  // notification, switching apps): no pointerup ever arrives for it.
+  useEffect(() => {
+    const drop = () => releaseSteps();
+    window.addEventListener("blur", drop);
+    document.addEventListener("visibilitychange", drop);
+    return () => {
+      releaseSteps();
+      window.removeEventListener("blur", drop);
+      document.removeEventListener("visibilitychange", drop);
+    };
+  }, []);
+  return (
+    <div className="step-controls" role="group" aria-label="Step in or back">
+      <StepButton dir="fwd" label="Step in toward the net">
+        <StepInIcon />
+      </StepButton>
+      <StepButton dir="back" label="Step back from the table">
+        <StepBackIcon />
+      </StepButton>
     </div>
   );
 }
@@ -207,11 +301,13 @@ export default function HUD() {
   const { togglePause, toggleMute } = useStore((state) => state.api);
 
   const inGame = phase === "playing" || phase === "paused";
+  const touch = useTouch();
 
   return (
     <>
       {inGame && (mode === "keepup" ? <KeepUpHUD /> : <MatchHUD />)}
-      {phase === "playing" && mode !== "keepup" && <Legend mode={mode} />}
+      {phase === "playing" && mode !== "keepup" && <Legend mode={mode} touch={touch} />}
+      {touch && phase === "playing" && mode !== "keepup" && <StepControls />}
       {inGame && (
         <div className="hud-buttons">
           <button

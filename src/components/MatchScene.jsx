@@ -6,6 +6,7 @@ import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore } from "../game/store.js";
 import { audio } from "../game/audio.js";
 import { fx, kick } from "../game/fx.js";
+import { touchSteps, releaseSteps } from "../game/touchControls.js";
 import { net } from "../net/current.js";
 
 const HALF_W = TABLE.WIDTH / 2;
@@ -250,6 +251,9 @@ export default function MatchScene() {
   // Leaving a match must hand the camera back at its normal distance.
   useEffect(() => () => {
     fx.depth = 0;
+    // A thumb still on a step button when the match ends must not carry
+    // the next match off at a walk.
+    releaseSteps();
   }, []);
 
   const ring = (x, y, z) => {
@@ -290,7 +294,10 @@ export default function MatchScene() {
     // the paddle glides there. The camera follows, so stepping back is
     // felt as a step back rather than seen as a paddle shrinking.
     const d = depth.current;
-    d.p1Want = clampDepth(d.p1Want + ((k.back ? 1 : 0) - (k.fwd ? 1 : 0)) * DEPTH_WALK * dt);
+    // Keys or the on-screen step buttons, whichever is held.
+    const fwd = k.fwd || touchSteps.fwd;
+    const back = k.back || touchSteps.back;
+    d.p1Want = clampDepth(d.p1Want + ((back ? 1 : 0) - (fwd ? 1 : 0)) * DEPTH_WALK * dt);
     d.p1 = glide(d.p1, d.p1Want, DEPTH_GLIDE * dt);
     input.p1z = d.p1;
     fx.depth = d.p1 - DEPTH.HOME;

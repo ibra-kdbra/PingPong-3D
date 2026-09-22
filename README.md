@@ -95,8 +95,10 @@ the edge of your reach is a weaker, wilder shot — for you and for the AI.
 
 Step **in** toward the net or **back** from the table with `W`/`S` (or
 the arrow keys), or the mouse wheel — the wheel is the one to use in
-two-player mode, where the keyboard belongs to player 2. The camera
-steps with you. Where you stand is a real choice, not a view setting:
+two-player mode, where the keyboard belongs to player 2. On a phone or
+tablet, hold the ▲ ▼ buttons on the left edge with one thumb while you
+steer with the other. The camera steps with you. Where you stand is a
+real choice, not a view setting:
 
 | | Standing in | Standing back |
 | --- | --- | --- |
@@ -179,6 +181,7 @@ your opponent after each point.
 | Mouse / touch | Move paddle · mouse height aims lob/drive (match modes) |
 | Left button + swing / right button / `Space` | Brush (curve) / loop / chop |
 | `W` `S`, arrow keys, or mouse wheel | Step in / back (wheel only, in two-player) |
+| ▲ ▼ buttons (touch screens) | Hold to step in / back |
 | `A` `D` / `W` `S` / `R` `F` / `Shift` `E` `Q` | Player 2 move / aim / step / brush, loop, chop |
 | `P` or `Esc` | Pause / resume |
 | `M` | Mute / unmute |
