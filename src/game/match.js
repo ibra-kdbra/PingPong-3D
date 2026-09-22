@@ -30,6 +30,20 @@ export const TABLE = {
   PADDLE_Z: 7.6,
 };
 
+/**
+ * How far from the net each player may stand, as a distance (the engine
+ * applies the sign for each side). HOME is where everyone starts and is
+ * exactly the old fixed paddle plane, so a player who never moves in
+ * depth plays the game it always was.
+ *
+ * Standing IN takes the ball early, over the end of the table: the return
+ * reaches the opponent sooner, and a short ball is easy to get to — but a
+ * deep, fast ball jams you. Standing BACK buys time to read a hard drive
+ * or a curving ball and to reach one that would sail past — but your own
+ * return is slower to arrive, and a short ball dies before you get there.
+ */
+export const DEPTH = { MIN: 6.6, HOME: TABLE.PADDLE_Z, MAX: 10.6 };
+
 export const BALL_RADIUS = 0.22;
 export const GRAVITY = -30;
 /** How far (x) from the paddle centre a ball can still be reached. */
@@ -57,6 +71,21 @@ const DIP = 0.35;
  *  the rest is real displacement — the ball bends past where it was aimed. */
 const BRUSH_COMPENSATION = 0.35;
 
+/**
+ * How strongly a striker's depth stretches or shrinks the flight of their
+ * return. Flight time scales with (distance to target / distance from
+ * home) to this power: below 1, so stepping back makes a return slower to
+ * arrive without turning it into a moon-ball, and stepping in quickens it
+ * without making it unplayable.
+ */
+const DEPTH_FLIGHT_EXP = 0.7;
+
+/** AI depth moves at this fraction of its lateral speed: stepping is
+ *  heavier than reaching. */
+const FOOTWORK_SPEED = 0.55;
+/** Resolution of the footwork prediction, in world units of depth. */
+const FOOTWORK_CELL = 0.1;
+
 /** Shot techniques (input.pNtech). */
 export const TECH = { DRIVE: 0, CHOP: 1, LOOP: 2 };
 
@@ -66,6 +95,10 @@ function noise(rng, scale) {
 }
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+/** A requested distance from the net, kept on the court. Junk (NaN from a
+ *  bad packet) means home rather than a paddle at infinity. */
+const depthOf = (v) => (Number.isFinite(v) ? clamp(v, DEPTH.MIN, DEPTH.MAX) : DEPTH.HOME);
 
 export function createMatch({
   /** AI config for player 2, or null when a human controls p2. */
@@ -119,7 +152,7 @@ export function createMatch({
   };
 
   const shot = { vx: 0, vy: 0, vz: 0 };
-  const aiState = { targetX: 0, reactTimer: 0, committed: false };
+  const aiState = { targetX: 0, targetDepth: DEPTH.HOME, reactTimer: 0, committed: false };
 
   function emit(type, a = 0, b = 0, c = 0) {
     state.events.push({ type, a, b, c });
@@ -131,6 +164,18 @@ export function createMatch({
 
   function other(player) {
     return player === 1 ? 2 : 1;
+  }
+
+  /**
+   * Flight-time multiplier for a shot `player` plays toward target depth
+   * `tz`. It compares the distance the ball must travel from where they
+   * are standing with the distance from home, so it is exactly 1 at home
+   * — standing still in depth changes nothing about the game.
+   */
+  function depthScale(player, tz) {
+    const stand = Math.abs(state.paddles[player - 1].z);
+    const far = Math.abs(tz);
+    return ((stand + far) / (DEPTH.HOME + far)) ** DEPTH_FLIGHT_EXP;
   }
 
   /** Solve a ballistic shot from the ball landing at (tx, 0, tz) in time T. */
@@ -159,7 +204,8 @@ export function createMatch({
   function launchServe() {
     const server = state.server;
     const dir = server === 1 ? -1 : 1;
-    solveShot(noise(rng, TABLE.WIDTH * 0.3), dir * TABLE.LENGTH * 0.32, 0.95);
+    const tz = dir * TABLE.LENGTH * 0.32;
+    solveShot(noise(rng, TABLE.WIDTH * 0.3), tz, 0.95 * depthScale(server, tz));
     const b = state.ball;
     b.vx = shot.vx;
     b.vy = shot.vy;
@@ -228,12 +274,22 @@ export function createMatch({
       sx = clamp(sx + spin * 0.9, -1, 1);
       compensation = BRUSH_COMPENSATION;
     }
-    const pressure = error * (1 + state.rallyHits * 0.22);
+    // Distance costs accuracy: a stroke from deep behind the table has
+    // further to travel and less margin, one taken over the end line is
+    // tighter. Square-rooted so it shades the choice rather than deciding
+    // it — and exactly 1 at home, like everything depth touches.
+    const reach = Math.sqrt(Math.abs(state.paddles[player - 1].z) / DEPTH.HOME);
+    const pressure = error * (1 + state.rallyHits * 0.22) * reach;
     const tz = dir * TABLE.LENGTH * 0.5 * Math.min(depth, 0.94) + noise(rng, pressure * 2);
     let tx = (targetX !== null ? targetX : b.x * 0.3 + steer * 1.6) + noise(rng, pressure);
     const margin = TABLE.WIDTH / 2 - 0.35;
     // Even a mishit aims near the table; error can still push it out.
     tx = clamp(tx, -margin - 1.2, margin + 1.2);
+
+    // Where you stood decides how long your return takes to arrive: the
+    // same stroke from deep behind the table is slower to reach the
+    // opponent than one taken early over the end line.
+    T *= depthScale(player, tz);
 
     // First pass for the forward speed, then re-solve with the topspin dip
     // folded into gravity and the Magnus curve (partly) pre-compensated.
@@ -252,6 +308,79 @@ export function createMatch({
     state.rallyHits += 1;
     if (state.rallyHits > state.bestRally) state.bestRally = state.rallyHits;
     emit("hit", player, Math.hypot(shot.vx, shot.vy, shot.vz) * (1 + power), tech);
+  }
+
+  // Footwork scratch space, allocated once: one cell per FOOTWORK_CELL of
+  // distance from the net, spanning every depth a hit window can reach.
+  const CELL_FROM = DEPTH.MIN - HIT_WINDOW_BEFORE;
+  const CELLS = Math.ceil((DEPTH.MAX + HIT_WINDOW_AFTER - CELL_FROM) / FOOTWORK_CELL) + 1;
+  const hittable = new Uint8Array(CELLS);
+
+  /** Does a paddle standing at depth `d` have a legal, reachable ball
+   *  anywhere inside its hit window, per the last prediction? */
+  function playableAt(d) {
+    const lo = Math.max(0, Math.floor((d - HIT_WINDOW_BEFORE - CELL_FROM) / FOOTWORK_CELL));
+    const hi = Math.min(CELLS - 1, Math.floor((d + HIT_WINDOW_AFTER - CELL_FROM) / FOOTWORK_CELL));
+    for (let c = lo; c <= hi; c++) if (hittable[c]) return true;
+    return false;
+  }
+
+  /**
+   * Where should the AI stand for the incoming ball? Flies a copy of it
+   * forward through the same physics as the real flight — gravity,
+   * topspin dip, curve, wind, the bounce — and marks every stretch of the
+   * AI's side where it can be played legally and within reach: after its
+   * one bounce, before a second, at a height a paddle can meet. Then picks
+   * the depth nearest home whose hit window catches such a stretch.
+   *
+   * Home wins whenever home works. Stepping away costs return speed and
+   * accuracy, so footwork only ever moves an opponent that would
+   * otherwise lose the ball — which is what makes it a skill rather than
+   * a handicap.
+   */
+  function bestDepth(maxIn, maxBack) {
+    // This flight and bounce mirror the rally physics in step(). Change one
+    // and change the other, or opponents will step for a ball that is not
+    // the one actually coming. (The footwork tests fly the real engine, so
+    // they are the tripwire.)
+    hittable.fill(0);
+    const b = state.ball;
+    let x = b.x, y = b.y, z = b.z, vx = b.vx, vy = b.vy, vz = b.vz, sx = b.sx, ts = b.ts;
+    let bounces = state.bounces;
+    const dt = 1 / 120;
+    for (let i = 0; i < 480; i++) {
+      vy += (gravity - DIP * Math.max(ts, 0) * Math.abs(vz)) * dt;
+      vx += (MAGNUS * sx * Math.abs(vz) + wind) * dt;
+      x += vx * dt;
+      y += vy * dt;
+      z += vz * dt;
+      if (
+        vy < 0 &&
+        y <= BALL_RADIUS &&
+        Math.abs(x) <= TABLE.WIDTH / 2 + BALL_RADIUS &&
+        Math.abs(z) <= TABLE.LENGTH / 2 + BALL_RADIUS
+      ) {
+        y = BALL_RADIUS;
+        vy = -vy * restitution * (1 - 0.18 * ts);
+        vz *= 0.985 * (1 + 0.14 * ts);
+        vx *= 0.97;
+        ts *= 0.45;
+        sx *= 0.6;
+        if (z < 0) bounces++;
+      }
+      if (bounces >= 2 || y < -1) break;
+      const cell = Math.floor((-z - CELL_FROM) / FOOTWORK_CELL);
+      if (cell >= CELLS) break;
+      if (cell >= 0 && bounces === 1 && y >= 0 && y <= PADDLE_REACH_Y - 0.2) hittable[cell] = 1;
+    }
+    if (playableAt(DEPTH.HOME)) return DEPTH.HOME;
+    const furthest = Math.max(maxIn, maxBack);
+    for (let k = 1; k * FOOTWORK_CELL <= furthest + 1e-9; k++) {
+      const d = k * FOOTWORK_CELL;
+      if (d <= maxBack + 1e-9 && playableAt(DEPTH.HOME + d)) return DEPTH.HOME + d;
+      if (d <= maxIn + 1e-9 && playableAt(DEPTH.HOME - d)) return DEPTH.HOME - d;
+    }
+    return DEPTH.HOME;
   }
 
   /**
@@ -273,6 +402,14 @@ export function createMatch({
       if (!aiState.committed && aiState.reactTimer >= ai.reactDelay && t > 0) {
         const ax = MAGNUS * b.sx * Math.abs(b.vz) + wind;
         aiState.targetX = b.x + b.vx * t + ai.spinRead * 0.5 * ax * t * t;
+        // The same read decides where to stand. More footwork, the further
+        // it is willing to go to rescue a ball.
+        if (ai.footwork > 0) {
+          aiState.targetDepth = bestDepth(
+            ai.footwork * (DEPTH.HOME - DEPTH.MIN),
+            ai.footwork * (DEPTH.MAX - DEPTH.HOME)
+          );
+        }
         aiState.committed = true;
       }
       if (aiState.committed && t > 0 && t < AI_LATE_WINDOW) {
@@ -291,28 +428,42 @@ export function createMatch({
     else paddle.x += Math.sign(dx) * maxStep;
     const limit = TABLE.WIDTH / 2 + 1.5;
     paddle.x = clamp(paddle.x, -limit, limit);
+
+    // Footwork. Skipped outright for a flat-footed opponent, so the ones
+    // without it play exactly as they always have.
+    if (ai.footwork > 0) {
+      const want = incoming && aiState.committed ? aiState.targetDepth : DEPTH.HOME;
+      const dz = -want - paddle.z; // player 2 stands on the -z side
+      const reach = ai.speed * FOOTWORK_SPEED * dt;
+      paddle.z += Math.abs(dz) <= reach ? dz : Math.sign(dz) * reach;
+    }
   }
 
   /**
    * Advance the simulation.
-   * input: { p1x, p1vx, p1aim, p1spin, p1tech, p2x, p2vx, p2aim, p2spin,
-   * p2tech } — p2 fields ignored when an AI is configured. spin is a
-   * deliberate -1..1 sidespin (brush); tech is a TECH value. Events accumulate in state.events; the
-   * caller consumes and clears them via drainEvents().
+   * input: { p1x, p1vx, p1aim, p1spin, p1tech, p1z, p2x, p2vx, p2aim,
+   * p2spin, p2tech, p2z } — p2 fields ignored when an AI is configured.
+   * spin is a deliberate -1..1 sidespin (brush); tech is a TECH value.
+   * pNz is how far from the net that player stands (a positive distance,
+   * clamped to DEPTH; omit it to stay at home). Events accumulate in
+   * state.events; the caller consumes and clears them via drainEvents().
    */
   function step(dt, input) {
     if (state.phase === "over") return;
     const b = state.ball;
 
-    // Player paddles follow their inputs directly (kinematic).
+    // Player paddles follow their inputs directly (kinematic). Depth is
+    // optional: a caller that never sends it keeps the fixed home plane.
     const p1 = state.paddles[0];
     p1.x = input.p1x;
     p1.vx = input.p1vx;
+    if (input.p1z !== undefined) p1.z = depthOf(input.p1z);
     if (ai) updateAI(dt);
     else {
       const p2 = state.paddles[1];
       p2.x = input.p2x;
       p2.vx = input.p2vx;
+      if (input.p2z !== undefined) p2.z = -depthOf(input.p2z);
     }
 
     if (state.phase === "serve" || state.phase === "between") {
@@ -413,6 +564,12 @@ export function createMatch({
       if (!toward || state.lastHitter === player) continue;
       const dz = player === 1 ? b.z - paddle.z : paddle.z - b.z;
       if (dz < -HIT_WINDOW_BEFORE || dz > HIT_WINDOW_AFTER) continue;
+      // No volleying over the table: a ball still above your own half has
+      // to bounce there before you may play it. Only reachable by standing
+      // in — from home the window starts beyond the end line — and the
+      // ball simply carries on to the bounce, so standing in means taking
+      // it early off the table rather than never.
+      if (state.bounces === 0 && Math.abs(b.z) < TABLE.LENGTH / 2) continue;
       const reach = player === 2 && ai ? AI_REACH_X : PADDLE_REACH_X;
       const offset = Math.abs(b.x - paddle.x);
       if (offset > reach) continue;
@@ -465,7 +622,10 @@ export function createMatch({
 
     // Ball escaped past a paddle plane entirely. If it never bounced it
     // was sailing long — hitter's fault; otherwise the receiver missed.
-    if (Math.abs(b.z) > TABLE.PADDLE_Z + 2.5) {
+    // Measured from where the receiver is actually standing: a player who
+    // stepped back must not lose a ball that has not reached them yet.
+    const behind = Math.abs(state.paddles[b.z > 0 ? 0 : 1].z);
+    if (Math.abs(b.z) > behind + 2.5) {
       if (state.bounces === 0) awardPoint(other(state.lastHitter), "out");
       else awardPoint(state.lastHitter, "missed");
     }
@@ -491,6 +651,8 @@ export function createMatch({
  *  aggression 0..1 share of flat, powerful drives
  *  spin       0..1 how much sidespin it puts on its own shots
  *  spinRead   0..1 how well it anticipates the curve of incoming spin
+ *  footwork   0..1 how much it steps in and back with the ball's pace
+ *             (0 = flat-footed at the fixed plane, as before depth existed)
  */
 export function makeAI({
   speed,
@@ -499,6 +661,7 @@ export function makeAI({
   aggression,
   spin = 0,
   spinRead = 0,
+  footwork = 0,
 }) {
   return {
     speed,
@@ -507,6 +670,7 @@ export function makeAI({
     aggression,
     spin,
     spinRead,
+    footwork,
     /** Pick shot loft: aggressive opponents drive flat and deep. */
     aim(state, rng) {
       return rng() < aggression ? -0.7 + rng() * 0.4 : -0.1 + rng() * 0.7;
