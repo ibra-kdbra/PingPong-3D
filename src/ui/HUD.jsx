@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { STAGES } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
 import { PauseIcon, PlayIcon, SoundIcon, MutedIcon, StepInIcon, StepBackIcon } from "./icons.jsx";
-import { touchSteps, releaseSteps, prefersTouch } from "../game/touchControls.js";
+import { touchHeld, releaseTouch, prefersTouch } from "../game/touchControls.js";
 
 function Lives() {
   const lives = useStore((state) => state.lives);
@@ -161,6 +161,7 @@ function Legend({ mode, touch }) {
       <span>higher to lob</span>
       <span>swipe fast to smash</span>
       <span>hold the arrows to step</span>
+      <span>hold Loop or Chop through the hit</span>
     </div>
   ) : (
     <div className="legend-row">
@@ -217,33 +218,34 @@ function useTouch() {
 }
 
 /**
- * Hold-to-step buttons for touch screens: the thumb that isn't steering
- * walks you in toward the net or back from the table, exactly as holding
- * W or S does.
+ * A button held with the thumb that isn't steering — a step, or the stroke
+ * to play on the next hit. It sets one field of touchHeld for exactly as
+ * long as the finger is down.
  *
  * Every touch here is kept to itself. The match listens for pointer
  * presses on the whole window and reads any touch as the left mouse
  * button — which means "curve" — so without this a thumb resting on a
- * step button would put curve on every stroke, and lifting it would
- * cancel a curve the other finger was still holding.
+ * button would put curve on every stroke, and lifting it would cancel a
+ * curve the other finger was still holding.
  */
-function StepButton({ dir, label, children }) {
+function HoldButton({ field, label, className = "", children }) {
   const [held, setHeld] = useState(false);
   const set = (v) => {
-    touchSteps[dir] = v;
+    touchHeld[field] = v;
     setHeld(v);
   };
   const keep = (e) => e.stopPropagation();
   return (
     <button
       type="button"
-      className={held ? "step-btn step-held" : "step-btn"}
+      className={`touch-btn ${className}${held ? " touch-held" : ""}`}
       aria-label={label}
+      aria-pressed={held}
       onPointerDown={(e) => {
         keep(e);
         e.preventDefault();
         // Keep receiving this finger even if it slides off the button,
-        // so lifting it anywhere stops the walk.
+        // so lifting it anywhere lets go.
         e.currentTarget.setPointerCapture?.(e.pointerId);
         set(true);
       }}
@@ -258,27 +260,44 @@ function StepButton({ dir, label, children }) {
   );
 }
 
-function StepControls() {
-  // Let go of everything if the page loses focus mid-step (a call, a
+/**
+ * Touch controls, down the left edge for the free thumb: stepping on top,
+ * then the two strokes a mouse plays with the right button and Space.
+ * Stepping happens between shots and the stroke at the hit, so one thumb
+ * covers both. Loop and chop are decided the instant the paddle meets the
+ * ball, so they are held through the hit rather than tapped.
+ */
+function TouchControls() {
+  // Let go of everything if the page loses focus mid-hold (a call, a
   // notification, switching apps): no pointerup ever arrives for it.
   useEffect(() => {
-    const drop = () => releaseSteps();
+    const drop = () => releaseTouch();
     window.addEventListener("blur", drop);
     document.addEventListener("visibilitychange", drop);
     return () => {
-      releaseSteps();
+      releaseTouch();
       window.removeEventListener("blur", drop);
       document.removeEventListener("visibilitychange", drop);
     };
   }, []);
   return (
-    <div className="step-controls" role="group" aria-label="Step in or back">
-      <StepButton dir="fwd" label="Step in toward the net">
-        <StepInIcon />
-      </StepButton>
-      <StepButton dir="back" label="Step back from the table">
-        <StepBackIcon />
-      </StepButton>
+    <div className="touch-controls">
+      <div className="touch-group" role="group" aria-label="Step in or back">
+        <HoldButton field="fwd" label="Step in toward the net">
+          <StepInIcon />
+        </HoldButton>
+        <HoldButton field="back" label="Step back from the table">
+          <StepBackIcon />
+        </HoldButton>
+      </div>
+      <div className="touch-group" role="group" aria-label="Stroke for the next hit">
+        <HoldButton field="loop" label="Loop: hold through the hit" className="touch-tech">
+          Loop
+        </HoldButton>
+        <HoldButton field="chop" label="Chop: hold through the hit" className="touch-tech">
+          Chop
+        </HoldButton>
+      </div>
     </div>
   );
 }
@@ -307,7 +326,7 @@ export default function HUD() {
     <>
       {inGame && (mode === "keepup" ? <KeepUpHUD /> : <MatchHUD />)}
       {phase === "playing" && mode !== "keepup" && <Legend mode={mode} touch={touch} />}
-      {touch && phase === "playing" && mode !== "keepup" && <StepControls />}
+      {touch && phase === "playing" && mode !== "keepup" && <TouchControls />}
       {inGame && (
         <div className="hud-buttons">
           <button

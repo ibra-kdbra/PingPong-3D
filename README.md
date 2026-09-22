@@ -87,6 +87,11 @@ are on the same version after an update.
 | **Right button** | **Loop**: heavy topspin — arcs high, dips late, kicks off the table |
 | **Space** | **Chop**: floating backspin that dies on the bounce |
 
+On a phone or tablet, the **Loop** and **Chop** buttons on the left edge
+play those strokes. The stroke is decided the instant the paddle meets the
+ball, so hold the button through the hit — a tap between shots does
+nothing.
+
 Player 2 on the keyboard: `A`/`D` move, `W`/`S` aim, `R`/`F` step,
 `Shift` brush, `E` loop, `Q` chop. Contact quality matters: a ball met at
 the edge of your reach is a weaker, wilder shot — for you and for the AI.
@@ -182,6 +187,7 @@ your opponent after each point.
 | Left button + swing / right button / `Space` | Brush (curve) / loop / chop |
 | `W` `S`, arrow keys, or mouse wheel | Step in / back (wheel only, in two-player) |
 | ▲ ▼ buttons (touch screens) | Hold to step in / back |
+| Loop / Chop buttons (touch screens) | Hold through the hit to loop / chop |
 | `A` `D` / `W` `S` / `R` `F` / `Shift` `E` `Q` | Player 2 move / aim / step / brush, loop, chop |
 | `P` or `Esc` | Pause / resume |
 | `M` | Mute / unmute |

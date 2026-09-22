@@ -6,7 +6,7 @@ import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore } from "../game/store.js";
 import { audio } from "../game/audio.js";
 import { fx, kick } from "../game/fx.js";
-import { touchSteps, releaseSteps } from "../game/touchControls.js";
+import { touchHeld, releaseTouch } from "../game/touchControls.js";
 import { net } from "../net/current.js";
 
 const HALF_W = TABLE.WIDTH / 2;
@@ -163,6 +163,8 @@ export default function MatchScene() {
     p1x: 0, p1vx: 0, p1aim: 0, p1spin: 0, p1tech: TECH.DRIVE,
     p2x: 0, p2vx: 0, p2aim: 0.1, p2spin: 0, p2tech: TECH.DRIVE,
   }).current;
+  // Dev only, after the declaration it reads: what the paddle will play.
+  if (import.meta.env.DEV) window.__input = input;
   const keys = useRef({
     left: false, right: false, up: false, down: false,
     p2brush: false, p2loop: false, p2chop: false,
@@ -253,7 +255,7 @@ export default function MatchScene() {
     fx.depth = 0;
     // A thumb still on a step button when the match ends must not carry
     // the next match off at a walk.
-    releaseSteps();
+    releaseTouch();
   }, []);
 
   const ring = (x, y, z) => {
@@ -288,15 +290,17 @@ export default function MatchScene() {
     input.p1spin = k.lmb
       ? Math.sign(input.p1vx) * Math.min(Math.abs(input.p1vx) / 22, 1)
       : 0;
-    input.p1tech = k.rmb ? TECH.LOOP : k.space ? TECH.CHOP : TECH.DRIVE;
+    // Mouse and keyboard, or the touch buttons; loop wins if both are held,
+    // as it does with the right button and Space.
+    input.p1tech = k.rmb || touchHeld.loop ? TECH.LOOP : k.space || touchHeld.chop ? TECH.CHOP : TECH.DRIVE;
 
     // Depth: keys walk where you want to stand, the wheel jumps it, and
     // the paddle glides there. The camera follows, so stepping back is
     // felt as a step back rather than seen as a paddle shrinking.
     const d = depth.current;
     // Keys or the on-screen step buttons, whichever is held.
-    const fwd = k.fwd || touchSteps.fwd;
-    const back = k.back || touchSteps.back;
+    const fwd = k.fwd || touchHeld.fwd;
+    const back = k.back || touchHeld.back;
     d.p1Want = clampDepth(d.p1Want + ((back ? 1 : 0) - (fwd ? 1 : 0)) * DEPTH_WALK * dt);
     d.p1 = glide(d.p1, d.p1Want, DEPTH_GLIDE * dt);
     input.p1z = d.p1;

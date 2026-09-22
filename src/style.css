@@ -380,11 +380,13 @@ button {
   background: var(--surface-2);
 }
 
-/* ---------- Touch: hold-to-step buttons ---------- */
+/* ---------- Touch: held controls down the left edge ---------- */
 
 /* Left edge, halfway down: the thumb that isn't steering rests here, clear
-   of pause and mute bottom-right and the legend bottom-centre. */
-.step-controls {
+   of pause and mute bottom-right and the legend bottom-centre. Steps on
+   top, strokes below, a wider gap between them so the two groups read as
+   two. Sized to fit a phone held sideways (390px tall). */
+.touch-controls {
   position: fixed;
   left: max(14px, env(safe-area-inset-left));
   top: 50%;
@@ -392,18 +394,25 @@ button {
   z-index: 10;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 22px;
 }
 
-.step-btn {
+.touch-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.touch-btn {
   display: grid;
   place-items: center;
-  width: 60px;
-  height: 60px;
+  width: 56px;
+  height: 56px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   color: var(--ink);
+  font-family: var(--font);
   /* A held button must not scroll, zoom, select text or open a callout. */
   touch-action: none;
   -webkit-touch-callout: none;
@@ -411,12 +420,18 @@ button {
   transition: background 0.12s var(--ease-out), border-color 0.12s var(--ease-out);
 }
 
-.step-btn svg {
-  width: 26px;
-  height: 26px;
+.touch-btn svg {
+  width: 24px;
+  height: 24px;
 }
 
-.step-btn.step-held {
+.touch-tech {
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.touch-btn.touch-held {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
