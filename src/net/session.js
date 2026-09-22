@@ -12,9 +12,9 @@
  * own pointer before sending (its right is world -x) and renders the
  * scene rotated 180°, so both players see themselves at the bottom.
  */
-import { GRAVITY, TABLE, BALL_RADIUS } from "../game/match.js";
+import { GRAVITY, TABLE, BALL_RADIUS, DEPTH } from "../game/match.js";
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 const SNAPSHOT_INTERVAL = 1 / 30;
 const PING_INTERVAL = 2;
 /**
@@ -40,7 +40,7 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
   };
   const listeners = [];
   const emit = (type, data) => listeners.forEach((cb) => cb(type, data));
-  const remote = { x: 0, vx: 0, aim: 0, spin: 0, tech: 0, seq: -1, at: 0 };
+  const remote = { x: 0, vx: 0, aim: 0, spin: 0, tech: 0, z: DEPTH.HOME, seq: -1, at: 0 };
   let nextSnap = 0;
   let nextPing = 0;
   /**
@@ -99,6 +99,11 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
           remote.aim = Math.max(-1, Math.min(1, +m.aim || 0));
           remote.spin = Math.max(-1, Math.min(1, +m.spin || 0));
           remote.tech = m.tech | 0;
+          // Depth is untrusted input like the rest: keep it on the court.
+          // A missing or junk value means home, never a paddle at NaN.
+          // (null is junk too: +null would be 0, "all the way in".)
+          const z = m.z == null ? NaN : +m.z;
+          remote.z = Number.isFinite(z) ? Math.max(DEPTH.MIN, Math.min(DEPTH.MAX, z)) : DEPTH.HOME;
           remote.at = now();
         }
         break;
@@ -132,6 +137,7 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
       input.p2aim = remote.aim;
       input.p2spin = remote.spin;
       input.p2tech = remote.tech;
+      input.p2z = remote.z;
     },
     /** Called every frame after stepping: streams snapshots, events, pings. */
     afterStep(events, count) {
@@ -154,7 +160,10 @@ export function createHost({ transport, match, name = "Host", now = () => perfor
           n: ++snapSeq,
           ts: t,
           ball: [b.x, b.y, b.z, b.vx, b.vy, b.vz, b.sx, b.ts],
-          p: [s.paddles[0].x, s.paddles[0].vx, s.paddles[1].x, s.paddles[1].vx],
+          p: [
+            s.paddles[0].x, s.paddles[0].vx, s.paddles[1].x, s.paddles[1].vx,
+            Math.abs(s.paddles[0].z), Math.abs(s.paddles[1].z),
+          ],
           ph: s.phase,
           srv: s.server,
           sc: [s.scores[0], s.scores[1]],
@@ -211,7 +220,14 @@ export function createGuest({ transport, name = "Guest", now = () => performance
       { x: 0, z: -TABLE.PADDLE_Z, vx: 0 },
     ],
   };
-  const target = { ball: { ...shadow.ball }, paddles: [{ x: 0, vx: 0 }, { x: 0, vx: 0 }], has: false };
+  const target = {
+    ball: { ...shadow.ball },
+    paddles: [
+      { x: 0, vx: 0, z: DEPTH.HOME },
+      { x: 0, vx: 0, z: DEPTH.HOME },
+    ],
+    has: false,
+  };
   const events = [];
   const listeners = [];
   const emit = (type, data) => listeners.forEach((cb) => cb(type, data));
@@ -260,6 +276,11 @@ export function createGuest({ transport, name = "Guest", now = () => performance
         target.paddles[0].vx = m.p[1];
         target.paddles[1].x = m.p[2];
         target.paddles[1].vx = m.p[3];
+        // Distances from the net; v3 hosts sent none, which reads as home.
+        if (m.p.length >= 6) {
+          target.paddles[0].z = m.p[4];
+          target.paddles[1].z = m.p[5];
+        }
         if (!target.has) {
           Object.assign(shadow.ball, target.ball);
           target.has = true;
@@ -346,8 +367,8 @@ export function createGuest({ transport, name = "Guest", now = () => performance
     shadow,
     on(cb) { listeners.push(cb); },
     /** Send this frame's input (world coordinates). */
-    sendInput(x, vx, aim, spin, tech) {
-      transport.send({ t: "input", seq: seq++, x, vx, aim, spin, tech });
+    sendInput(x, vx, aim, spin, tech, z = DEPTH.HOME) {
+      transport.send({ t: "input", seq: seq++, x, vx, aim, spin, tech, z });
       const t = now();
       if (t >= nextPing) {
         nextPing = t + PING_INTERVAL;
@@ -379,6 +400,8 @@ export function createGuest({ transport, name = "Guest", now = () => performance
         const tp = target.paddles[i];
         p.x += (tp.x - p.x) * Math.min(1, dt * 18);
         p.vx = tp.vx;
+        const wantZ = (i === 0 ? 1 : -1) * tp.z;
+        p.z += (wantZ - p.z) * Math.min(1, dt * 18);
       }
     },
     drainEvents(out) {
