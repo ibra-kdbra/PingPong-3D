@@ -159,6 +159,11 @@ function Legend({ mode }) {
       <span>click + swing curves</span>
       <span>right-click loop</span>
       <span><kbd>Space</kbd> chop</span>
+      {mode === "versus" ? (
+        <span>scroll to step</span>
+      ) : (
+        <span><kbd>W</kbd><kbd>S</kbd> step</span>
+      )}
     </div>
   );
   return (
@@ -172,6 +177,7 @@ function Legend({ mode }) {
           <span><kbd>Shift</kbd> curve</span>
           <span><kbd>E</kbd> loop</span>
           <span><kbd>Q</kbd> chop</span>
+          <span><kbd>R</kbd><kbd>F</kbd> step</span>
         </div>
       )}
       <div className="legend-row legend-quiet">

@@ -6,6 +6,9 @@
 export const fx = {
   /** Camera shake energy, decays every frame. */
   shake: 0,
+  /** How far the local player stands behind home (negative = stepped in).
+   *  The camera eases after it. */
+  depth: 0,
 };
 
 export function kick(amount) {

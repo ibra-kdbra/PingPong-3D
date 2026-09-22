@@ -567,3 +567,61 @@ test("a snapshot from before a rematch cannot un-reset the score", () => {
   wire(snap(13, [0, 1]));
   assert.deepEqual([...guest.state.scores], [0, 1], "the new game still updates");
 });
+
+// ---------------------------------------------------------------- depth
+
+test("the guest's depth reaches the host's engine, kept on the court", async () => {
+  const { DEPTH } = await import("../src/game/match.js");
+  const { host, guest, flushAll } = setup();
+  const input = idle();
+
+  guest.sendInput(0, 0, 0, 0, 0, 9.4);
+  flushAll();
+  host.applyRemoteInput(input);
+  assert.equal(input.p2z, 9.4);
+
+  // Untrusted like every other field: out of range is clamped, junk is home.
+  for (const [sent, got] of [[99, DEPTH.MAX], [-3, DEPTH.MIN], ["x", DEPTH.HOME], [null, DEPTH.HOME]]) {
+    guest.sendInput(0, 0, 0, 0, 0, sent);
+    flushAll();
+    host.applyRemoteInput(input);
+    assert.equal(input.p2z, got, `sent ${JSON.stringify(sent)}`);
+  }
+});
+
+test("a guest that sends no depth stands at home", async () => {
+  const { DEPTH } = await import("../src/game/match.js");
+  const { host, guest, flushAll } = setup();
+  const input = idle();
+  guest.sendInput(1, 0, 0, 0, 0); // an older caller: no depth argument
+  flushAll();
+  host.applyRemoteInput(input);
+  assert.equal(input.p2z, DEPTH.HOME);
+});
+
+test("snapshots carry both players' depth and the guest's view follows", async () => {
+  const { DEPTH } = await import("../src/game/match.js");
+  const { c, host, guest, match, flushAll } = setup();
+  const input = idle();
+  input.p1z = DEPTH.MAX; // the host has stepped back
+  guest.sendInput(0, 0, 0, 0, 0, DEPTH.MIN); // the guest has stepped in
+  flushAll();
+  const events = new Array(16);
+  for (let i = 0; i < 120; i++) {
+    host.applyRemoteInput(input);
+    match.step(STEP, input);
+    host.afterStep(events, match.drainEvents(events));
+    c.advance(STEP);
+    flushAll();
+    guest.update(STEP);
+  }
+  assert.equal(match.state.paddles[0].z, DEPTH.MAX, "host engine: host at the back");
+  assert.equal(match.state.paddles[1].z, -DEPTH.MIN, "host engine: guest in close");
+  const [hostView, guestView] = guest.shadow.paddles;
+  assert.ok(Math.abs(hostView.z - DEPTH.MAX) < 0.01, `guest sees the host at ${hostView.z}`);
+  assert.ok(Math.abs(guestView.z + DEPTH.MIN) < 0.01, `and itself at ${guestView.z}`);
+});
+
+test("depth changed the wire format, so the protocol version moved", () => {
+  assert.equal(PROTOCOL_VERSION, 4);
+});

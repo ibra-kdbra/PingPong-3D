@@ -87,9 +87,33 @@ are on the same version after an update.
 | **Right button** | **Loop**: heavy topspin — arcs high, dips late, kicks off the table |
 | **Space** | **Chop**: floating backspin that dies on the bounce |
 
-Player 2 on the keyboard: `A`/`D` move, `W`/`S` aim, `Shift` brush,
-`E` loop, `Q` chop. Contact quality matters: a ball met at the edge of
-your reach is a weaker, wilder shot — for you and for the AI.
+Player 2 on the keyboard: `A`/`D` move, `W`/`S` aim, `R`/`F` step,
+`Shift` brush, `E` loop, `Q` chop. Contact quality matters: a ball met at
+the edge of your reach is a weaker, wilder shot — for you and for the AI.
+
+### Footwork
+
+Step **in** toward the net or **back** from the table with `W`/`S` (or
+the arrow keys), or the mouse wheel — the wheel is the one to use in
+two-player mode, where the keyboard belongs to player 2. The camera
+steps with you. Where you stand is a real choice, not a view setting:
+
+| | Standing in | Standing back |
+| --- | --- | --- |
+| Your return arrives | sooner — pressure | later — gives them time |
+| Your accuracy | tighter | looser |
+| The ball reaches you | early, low off the bounce | late, at the top of the bounce |
+| Good against | short balls, before they die | hard drives, backspin that sits up out of reach |
+
+One cost is easy to miss. Your paddle plays any ball that comes within
+reach — it can't choose to let one go. A high ball sailing long is out
+of reach from where you start, so it lands out and the point is yours.
+Stand back and it's in reach, so you play it and give that point away.
+
+Standing where you start plays exactly the game it always did. Later
+opponents move their feet too: the flat-footed early ones stay home,
+stronger ones step back for a lob or in for a drop shot — but only when
+staying put would lose them the ball.
 
 ## The match engine
 
@@ -113,6 +137,13 @@ Matches run on a custom, dependency-free table-tennis engine
   basis for online play.
 - **Net cord** — a ball that clips the top of the net loses its pace and
   trickles over, still in play; below the cord it's a fault.
+- **Depth** — each player's distance from the net is an input. A return's
+  flight time scales with how far it has to travel, and its scatter with
+  the square root of that distance, both exactly 1 at the starting
+  position. No volleying over the table: a ball above your own half must
+  bounce there first. Opponents with footwork fly a copy of the incoming
+  ball forward through the same physics and step to the nearest spot
+  where it is legally playable — home, whenever home works.
 - **Stage physics** — gravity, wind, net height and table bounce are all
   per-match parameters the campaign plays with.
 - **Rally pressure** — shot error grows as a rally drags on, so points
@@ -147,7 +178,8 @@ your opponent after each point.
 | --- | --- |
 | Mouse / touch | Move paddle · mouse height aims lob/drive (match modes) |
 | Left button + swing / right button / `Space` | Brush (curve) / loop / chop |
-| `A` `D` / `W` `S` / `Shift` `E` `Q` | Player 2 move / aim / brush, loop, chop |
+| `W` `S`, arrow keys, or mouse wheel | Step in / back (wheel only, in two-player) |
+| `A` `D` / `W` `S` / `R` `F` / `Shift` `E` `Q` | Player 2 move / aim / step / brush, loop, chop |
 | `P` or `Esc` | Pause / resume |
 | `M` | Mute / unmute |
 

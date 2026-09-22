@@ -1,0 +1,33 @@
+# Test every pull request before it can reach main.
+#
+# Deliberately separate from deploy.yml: that workflow publishes to GitHub
+# Pages, which serves one site per repository, so running it for a branch
+# would replace production with that branch. This one only tests and
+# builds — there is nothing here that can touch the live site.
+name: Test
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # The same production build deploy.yml ships, so a PR that tests green
+      # but does not bundle is caught here rather than on main.
+      - run: npm run build

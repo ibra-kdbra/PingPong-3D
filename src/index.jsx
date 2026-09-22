@@ -12,13 +12,15 @@ if (import.meta.env.DEV) {
     import("./net/session.js"),
     import("./game/match.js"),
     import("./net/current.js"),
-  ]).then(([transport, session, match, current]) => {
+    import("./game/fx.js"),
+  ]).then(([transport, session, match, current, fx]) => {
     window.__net = {
       ...transport,
       ...session,
       createMatch: match.createMatch,
       current: current.net,
     };
+    window.__fx = fx.fx;
   });
 }
 
