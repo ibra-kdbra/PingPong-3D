@@ -92,3 +92,19 @@ export function BackIcon() {
     </svg>
   );
 }
+
+export function StepInIcon() {
+  return (
+    <svg {...base}>
+      <path d="M4 13l6-6 6 6" />
+    </svg>
+  );
+}
+
+export function StepBackIcon() {
+  return (
+    <svg {...base}>
+      <path d="M4 7l6 6 6-6" />
+    </svg>
+  );
+}

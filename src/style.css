@@ -380,6 +380,48 @@ button {
   background: var(--surface-2);
 }
 
+/* ---------- Touch: hold-to-step buttons ---------- */
+
+/* Left edge, halfway down: the thumb that isn't steering rests here, clear
+   of pause and mute bottom-right and the legend bottom-centre. */
+.step-controls {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step-btn {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--ink);
+  /* A held button must not scroll, zoom, select text or open a callout. */
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s var(--ease-out), border-color 0.12s var(--ease-out);
+}
+
+.step-btn svg {
+  width: 26px;
+  height: 26px;
+}
+
+.step-btn.step-held {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* ---------- Banner: the one authored motion moment ---------- */
 
 .banner {
