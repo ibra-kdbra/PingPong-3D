@@ -420,6 +420,13 @@ button {
   transition: background 0.12s var(--ease-out), border-color 0.12s var(--ease-out);
 }
 
+/* A phone on its side: five buttons must fit the short edge. */
+@media (max-height: 400px) {
+  .touch-controls { gap: 14px; }
+  .touch-group { gap: 8px; }
+  .touch-btn { width: 50px; height: 50px; }
+}
+
 .touch-btn svg {
   width: 24px;
   height: 24px;
@@ -869,6 +876,13 @@ kbd {
   .legend-row:not(:first-child) { display: none; }
   .gh-owner { display: none; }
   .github-play { display: none; }
+}
+
+/* Held upright, a phone is too narrow for the centred legend to pass
+   between the corners: it would run under pause and mute, so it sits
+   above them instead. */
+@media only screen and (max-width: 560px) {
+  .legend { bottom: 78px; }
 }
 
 /* ---------- Online lobby ---------- */

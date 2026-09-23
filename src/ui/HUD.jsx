@@ -161,7 +161,7 @@ function Legend({ mode, touch }) {
       <span>higher to lob</span>
       <span>swipe fast to smash</span>
       <span>hold the arrows to step</span>
-      <span>hold Loop or Chop through the hit</span>
+      <span>hold Curve, Loop or Chop through the hit</span>
     </div>
   ) : (
     <div className="legend-row">
@@ -220,13 +220,8 @@ function useTouch() {
 /**
  * A button held with the thumb that isn't steering — a step, or the stroke
  * to play on the next hit. It sets one field of touchHeld for exactly as
- * long as the finger is down.
- *
- * Every touch here is kept to itself. The match listens for pointer
- * presses on the whole window and reads any touch as the left mouse
- * button — which means "curve" — so without this a thumb resting on a
- * button would put curve on every stroke, and lifting it would cancel a
- * curve the other finger was still holding.
+ * long as the finger is down, and keeps its touches to itself so nothing
+ * listening on the window mistakes them for play.
  */
 function HoldButton({ field, label, className = "", children }) {
   const [held, setHeld] = useState(false);
@@ -262,10 +257,11 @@ function HoldButton({ field, label, className = "", children }) {
 
 /**
  * Touch controls, down the left edge for the free thumb: stepping on top,
- * then the two strokes a mouse plays with the right button and Space.
+ * then the three strokes a mouse plays with its buttons and Space.
  * Stepping happens between shots and the stroke at the hit, so one thumb
- * covers both. Loop and chop are decided the instant the paddle meets the
- * ball, so they are held through the hit rather than tapped.
+ * covers both. Strokes are decided the instant the paddle meets the ball,
+ * so they are held through the hit rather than tapped; Curve bends the
+ * ball by as much as the steering finger is swiping across.
  */
 function TouchControls() {
   // Let go of everything if the page loses focus mid-hold (a call, a
@@ -291,6 +287,9 @@ function TouchControls() {
         </HoldButton>
       </div>
       <div className="touch-group" role="group" aria-label="Stroke for the next hit">
+        <HoldButton field="curve" label="Curve: hold and swipe across" className="touch-tech">
+          Curve
+        </HoldButton>
         <HoldButton field="loop" label="Loop: hold through the hit" className="touch-tech">
           Loop
         </HoldButton>

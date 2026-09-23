@@ -211,11 +211,18 @@ export default function MatchScene() {
     };
     const down = (e) => setKey(e, true);
     const up = (e) => setKey(e, false);
+    // Mouse buttons only. A finger or a stylus has to be down just to
+    // steer, and it reports itself as the left button, so reading it here
+    // would put curve on every swipe; touch screens curve with the on-screen
+    // Curve button instead. Ignoring their lifts too means a tap can't
+    // cancel a curve a mouse is holding on a touchscreen laptop.
     const pointerDown = (e) => {
+      if (e.pointerType !== "mouse") return;
       if (e.button === 0) k.lmb = true;
       if (e.button === 2) k.rmb = true;
     };
     const pointerUp = (e) => {
+      if (e.pointerType !== "mouse") return;
       if (e.button === 0) k.lmb = false;
       if (e.button === 2) k.rmb = false;
     };
@@ -253,8 +260,8 @@ export default function MatchScene() {
   // Leaving a match must hand the camera back at its normal distance.
   useEffect(() => () => {
     fx.depth = 0;
-    // A thumb still on a step button when the match ends must not carry
-    // the next match off at a walk.
+    // A thumb still on a touch button when the match ends must not carry
+    // into the next match, stepping or holding a stroke.
     releaseTouch();
   }, []);
 
@@ -278,8 +285,8 @@ export default function MatchScene() {
     const k = keys.current;
 
     // Player 1: mouse. x position, swing velocity, loft from mouse height;
-    // hold the left button while swinging to brush (curve), right button
-    // to loop, Space to chop.
+    // hold the left button (or the Curve button) while swinging to brush,
+    // right button to loop, Space to chop.
     input.p1vx =
       dt > 0
         ? Math.max(-40, Math.min(40, (targetX - prevP1.current) / dt))
@@ -287,7 +294,7 @@ export default function MatchScene() {
     prevP1.current = targetX;
     input.p1x = targetX;
     input.p1aim = Math.max(-1, Math.min(1, state.pointer.y * 1.4));
-    input.p1spin = k.lmb
+    input.p1spin = k.lmb || touchHeld.curve
       ? Math.sign(input.p1vx) * Math.min(Math.abs(input.p1vx) / 22, 1)
       : 0;
     // Mouse and keyboard, or the touch buttons; loop wins if both are held,
