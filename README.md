@@ -33,7 +33,8 @@ notes: [NETPLAY.md](NETPLAY.md).
 ### Two players
 Same screen, same table. Player 1 steers with the mouse (height aims the
 shot: high lobs, low drives). Player 2 moves with `A`/`D` and aims with
-`W`/`S`. First to 7.
+`W`/`S`. With controllers, the first one connected plays for player 1 and
+the second for player 2. First to 7.
 
 ### Keep-up
 The solo survival mode: keep the ball on your paddle through 8 levels of
@@ -97,6 +98,31 @@ however fast.
 Player 2 on the keyboard: `A`/`D` move, `W`/`S` aim, `R`/`F` step,
 `Shift` brush, `E` loop, `Q` chop. Contact quality matters: a ball met at
 the edge of your reach is a weaker, wilder shot — for you and for the AI.
+
+### Controllers
+
+Any controller the browser recognises works in every mode, including the
+menus. The sticks divide the job the way your body does:
+
+| Controller | Does |
+| --- | --- |
+| **Left stick** (or D-pad) | Your feet: move sideways; push up to step in, down to step back |
+| **Right stick** | Your arm: flick it across to swing (a hard flick smashes); up lobs, down drives |
+| **LB / RB** | Curve: hold while swinging |
+| **RT** | Loop |
+| **LT** | Chop |
+| **Start** | Pause / resume |
+| **Back** | Mute |
+| **D-pad or left stick, A, B** | In menus: move, press, go back |
+
+The paddle stays where the left stick leaves it, the way a mouse does, and
+the right stick carries it a little further while you hold it. Mouse and
+controller hand over to whichever moved last, without the paddle jumping.
+The controller buzzes on your hits, harder on a smash. PlayStation and
+Nintendo controllers show their own button names in the game (L1/R1, R2,
+L2 and L/R, ZR, ZL). If a controller disconnects mid-point, the game
+pauses. In keep-up there's no table to step to, so the left stick moves
+the paddle up and down as well.
 
 ### Footwork
 
@@ -188,11 +214,12 @@ your opponent after each point.
 | Mouse / touch | Move paddle · mouse height aims lob/drive (match modes) |
 | Left button + swing / right button / `Space` | Brush (curve) / loop / chop |
 | `W` `S`, arrow keys, or mouse wheel | Step in / back (wheel only, in two-player) |
+| Controller | Left stick move and step · right stick swing and loft · LB/RB curve · RT loop · LT chop — see [Controllers](#controllers) |
 | ▲ ▼ buttons (touch screens) | Hold to step in / back |
 | Curve / Loop / Chop buttons (touch screens) | Hold through the hit to curve (while swiping across) / loop / chop |
 | `A` `D` / `W` `S` / `R` `F` / `Shift` `E` `Q` | Player 2 move / aim / step / brush, loop, chop |
-| `P` or `Esc` | Pause / resume |
-| `M` | Mute / unmute |
+| `P`, `Esc`, or Start | Pause / resume |
+| `M` or Back | Mute / unmute |
 
 ## Setup
 
@@ -214,6 +241,8 @@ src/
 │   ├── match.js      # table-tennis engine: physics, spin, rules, AI (pure JS)
 │   ├── stages.js     # adventure opponents, physics twists, themes, star rating
 │   ├── fx.js         # frame-level effect channel (camera shake)
+│   ├── gamepad.js    # controllers: sticks, buttons, players, rumble (pure JS)
+│   ├── touchControls.js # on-screen touch buttons' shared state
 │   ├── store.js      # zustand state machine for all modes
 │   ├── levels.js     # keep-up level definitions
 │   ├── collision.js  # cannon collision filter groups (keep-up)
@@ -221,6 +250,7 @@ src/
 ├── components/
 │   ├── Scene.jsx       # mode routing, environment, adaptive quality
 │   ├── MatchScene.jsx  # table, net, paddles, engine loop
+│   ├── PadInput.jsx    # reads the controllers once a frame, before play
 │   ├── Paddle.jsx      # keep-up glove paddle (cannon kinematic body)
 │   ├── Ball.jsx        # keep-up ball: trail, wind, stall detection
 │   ├── Arena.jsx       # keep-up bounds + themed floor
@@ -233,12 +263,15 @@ src/
 │   ├── HUD.jsx       # mode-aware HUD: scoreboard, lives, combo, banners
 │   ├── Screens.jsx   # menu, adventure map, online lobby, pause, endings
 │   ├── Logo.jsx      # the mark, inline SVG
-│   └── icons.jsx     # inline SVG icons
-└── Experience.jsx    # canvas + UI shell + keyboard shortcuts
+│   ├── icons.jsx     # inline SVG icons
+│   └── usePad.js     # controller menus, Start / Back, connect notices
+└── Experience.jsx    # canvas + UI shell + keyboard and controller shortcuts
 tests/
 ├── match.test.mjs      # rules: serves, faults, rotation, match flow
 ├── physics.test.mjs    # spin, net cord, bounces, modifiers, AI spin-reading
 ├── techniques.test.mjs # brush curve, loop, chop, compensation
+├── depth.test.mjs      # footwork: depth, reach, the volley rule, AI stepping
+├── gamepad.test.mjs    # controllers: deadzones, sticks, stepping, players
 └── net.test.mjs        # online: handshake, inputs, snapshots, smoothing, rematch
 ```
 
@@ -250,4 +283,4 @@ publishes to GitHub Pages via `.github/workflows/deploy.yml`.
 - [ ] Online: choose a stage/physics twist for the room; spectators
 - [ ] Tournament mode: best-of-3 sets, seeded brackets
 - [ ] Replays of match points
-- [ ] Gamepad support
+- [x] Gamepad support

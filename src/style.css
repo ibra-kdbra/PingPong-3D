@@ -885,6 +885,38 @@ kbd {
   .legend { bottom: 78px; }
 }
 
+/* ---------- Controllers ---------- */
+
+/* Menus driven by a controller show where focus is, as the keyboard does;
+   a programmatic focus wouldn't otherwise count as :focus-visible. */
+.pad-nav .screen :focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.pad-toast {
+  position: fixed;
+  top: 112px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(13, 16, 32, 0.86);
+  color: var(--ink);
+  font-size: 0.85em;
+  font-weight: 600;
+  pointer-events: none;
+  animation: pad-toast 2.6s var(--ease-out) forwards;
+}
+
+@keyframes pad-toast {
+  0% { opacity: 0; transform: translate(-50%, -6px); }
+  10%, 85% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, 0); }
+}
+
 /* ---------- Online lobby ---------- */
 
 .panel-online {

@@ -18,6 +18,16 @@ import {
 } from "../net/transport.js";
 import { createHost, createGuest } from "../net/session.js";
 import { createMatch } from "./match.js";
+import { getPads, padLabels } from "./gamepad.js";
+import { prefersTouch } from "./touchControls.js";
+
+/** How to curve, said for whatever the player is holding. */
+function curveHint() {
+  const pads = getPads();
+  if (pads.length > 0) return `hold ${padLabels(pads[0].id).curve} while you swing to curve`;
+  if (prefersTouch()) return "hold Curve while you swipe to curve";
+  return "hold click while swinging to curve";
+}
 
 const NAME_KEY = "pingpong3d.name";
 const loadName = () => {
@@ -271,7 +281,7 @@ export const useStore = create((set, get) => {
           stage.modifier
             ? `${stage.modifier} · first to ${stage.winScore}`
             : index === 0
-              ? `First to ${stage.winScore} · hold click while swinging to curve`
+              ? `First to ${stage.winScore} · ${curveHint()}`
               : `First to ${stage.winScore}`
         );
       },

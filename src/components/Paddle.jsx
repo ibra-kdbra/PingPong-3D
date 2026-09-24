@@ -6,6 +6,7 @@ import { DRACOLoader } from "three-stdlib/loaders/DRACOLoader";
 import { GLTFLoader } from "three-stdlib/loaders/GLTFLoader";
 import { GROUP_BALL, GROUP_PADDLE } from "../game/collision.js";
 import { useStore } from "../game/store.js";
+import { padPlayers, rumble } from "../game/gamepad.js";
 import Text from "./Text.jsx";
 
 const extensions = (loader) => {
@@ -35,8 +36,17 @@ export default function Paddle() {
     args: [3.4, 1, 3.5],
     collisionFilterGroup: GROUP_PADDLE,
     collisionFilterMask: GROUP_BALL,
-    onCollide: (e) => pong(e.contact.impactVelocity),
+    onCollide: (e) => {
+      const v = e.contact.impactVelocity;
+      pong(v);
+      // A controller feels the ball land on the paddle, harder for harder hits.
+      const pad = padPlayers[0];
+      if (pad.active) rumble(pad.index, Math.min(v / 30, 0.6), 0.5, 50);
+    },
   }));
+
+  // Dev builds only, like window.__match: where the paddle really is.
+  if (import.meta.env.DEV) window.__keepupPaddle = ref;
 
   // Smoothed tilt + previous position, used to feed the physics engine a
   // real velocity so ball impacts inherit the paddle's motion (this is what
@@ -45,11 +55,13 @@ export default function Paddle() {
   const prev = useRef([0, 0]);
 
   useFrame((state, delta) => {
-    const x = state.pointer.x * REACH_X;
-    const y = state.pointer.y * REACH_Y;
+    // The mouse, or a controller while it has the paddle (see PadInput).
+    const pointer = padPlayers[0].active ? padPlayers[0] : state.pointer;
+    const x = pointer.x * REACH_X;
+    const y = pointer.y * REACH_Y;
     tilt.current = MathUtils.lerp(
       tilt.current,
-      (state.pointer.x * Math.PI) / 5,
+      (pointer.x * Math.PI) / 5,
       0.2
     );
 

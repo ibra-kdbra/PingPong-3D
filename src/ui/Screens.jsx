@@ -3,6 +3,7 @@ import { STAGES } from "../game/stages.js";
 import { useStore } from "../game/store.js";
 import { useState } from "react";
 import { LockIcon, CheckIcon, BackIcon, StarIcon } from "./icons.jsx";
+import { usePadStatus } from "./usePad.js";
 import Logo from "./Logo.jsx";
 
 const MAX_STARS = STAGES.length * 3;
@@ -24,6 +25,7 @@ function MenuScreen() {
   const unlocked = useStore((state) => state.unlocked);
   const stars = useStore((state) => state.stars);
   const { startKeepUp, toMap, startVersus, openOnline } = useStore((state) => state.api);
+  const pads = usePadStatus((state) => state.count);
   const beatenAll = unlocked >= STAGES.length;
   const totalStars = Object.values(stars).reduce((a, b) => a + b, 0);
   return (
@@ -52,7 +54,9 @@ function MenuScreen() {
           </button>
           <button className="btn btn-mode" onClick={startVersus}>
             <span className="mode-name">Two players</span>
-            <span className="mode-desc">Mouse vs keyboard</span>
+            <span className="mode-desc">
+              {pads >= 2 ? "Controller vs controller" : pads === 1 ? "Controller vs keyboard" : "Mouse vs keyboard"}
+            </span>
           </button>
           <button className="btn btn-mode" onClick={startKeepUp}>
             <span className="mode-name">Keep-up</span>
@@ -62,10 +66,17 @@ function MenuScreen() {
           </button>
         </div>
 
-        <p className="howto">
-          Move with the mouse. Swing fast to smash, hold click while swinging
-          to curve.
-        </p>
+        {pads > 0 ? (
+          <p className="howto">
+            Left stick moves, right stick swings: flick it across to smash,
+            push it up to lob.
+          </p>
+        ) : (
+          <p className="howto">
+            Move with the mouse. Swing fast to smash, hold click while swinging
+            to curve.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -79,7 +90,7 @@ function MapScreen() {
     <div className="screen">
       <div className="panel panel-map">
         <div className="map-head">
-          <button className="icon-btn" onClick={toMenu} aria-label="Back to menu">
+          <button className="icon-btn" onClick={toMenu} aria-label="Back to menu" data-pad-back>
             <BackIcon />
           </button>
           <h2 className="subtitle">Adventure</h2>
@@ -94,6 +105,7 @@ function MapScreen() {
                   className={locked ? "stage locked" : "stage"}
                   disabled={locked}
                   onClick={() => startStage(i)}
+                  data-pad-default={i === Math.min(unlocked, STAGES.length - 1) || undefined}
                   style={locked ? undefined : { "--stage-accent": stage.theme.accent }}
                 >
                   <span className="stage-num">{i + 1}</span>
@@ -225,7 +237,7 @@ function OnlineScreen() {
     <div className="screen">
       <div className="panel panel-online">
         <div className="map-head">
-          <button className="icon-btn" onClick={leaveOnline} aria-label="Back to menu">
+          <button className="icon-btn" onClick={leaveOnline} aria-label="Back to menu" data-pad-back>
             <BackIcon />
           </button>
           <h2 className="subtitle">Play online</h2>
@@ -314,7 +326,7 @@ function PauseScreen() {
     <div className="screen screen-dim">
       <div className="panel">
         <h2 className="subtitle">Paused</h2>
-        <button className="btn btn-primary" onClick={togglePause}>
+        <button className="btn btn-primary" onClick={togglePause} data-pad-back>
           Resume
         </button>
         <button className="btn btn-ghost" onClick={toMenu}>
@@ -348,7 +360,7 @@ function KeepUpGameOver() {
         <button className="btn btn-primary" onClick={startKeepUp}>
           Play again
         </button>
-        <button className="btn btn-ghost" onClick={toMenu}>
+        <button className="btn btn-ghost" onClick={toMenu} data-pad-back>
           Menu
         </button>
       </div>
@@ -394,7 +406,7 @@ function OnlineOverScreen() {
                 : "Rematch"}
           </button>
         )}
-        <button className="btn btn-ghost" onClick={leaveOnline}>
+        <button className="btn btn-ghost" onClick={leaveOnline} data-pad-back>
           Leave
         </button>
       </div>
@@ -480,11 +492,11 @@ function LocalOverScreen() {
           </button>
         )}
         {mode === "adventure" ? (
-          <button className="btn btn-ghost" onClick={toMap}>
+          <button className="btn btn-ghost" onClick={toMap} data-pad-back>
             Stage map
           </button>
         ) : (
-          <button className="btn btn-ghost" onClick={toMenu}>
+          <button className="btn btn-ghost" onClick={toMenu} data-pad-back>
             Menu
           </button>
         )}

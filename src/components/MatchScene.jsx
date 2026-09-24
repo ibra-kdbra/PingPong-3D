@@ -7,6 +7,7 @@ import { useStore } from "../game/store.js";
 import { audio } from "../game/audio.js";
 import { fx, kick } from "../game/fx.js";
 import { touchHeld, releaseTouch } from "../game/touchControls.js";
+import { padPlayers, rumble } from "../game/gamepad.js";
 import { net } from "../net/current.js";
 
 const HALF_W = TABLE.WIDTH / 2;
@@ -273,7 +274,11 @@ export default function MatchScene() {
 
   useFrame((state, rawDelta) => {
     const game = useStore.getState();
-    const targetX = state.pointer.x * P1_RANGE;
+    // Player 1 aims with the mouse (or a finger), or with a controller
+    // while it has the paddle; PadInput has already read it this frame.
+    const pad1 = padPlayers[0];
+    const pointer = pad1.active ? pad1 : state.pointer;
+    const targetX = pointer.x * P1_RANGE;
     if (game.phase !== "playing") {
       // Track the paddle even while paused so the first resumed frame
       // doesn't see a huge position delta as swing velocity.
@@ -286,46 +291,66 @@ export default function MatchScene() {
 
     // Player 1: mouse. x position, swing velocity, loft from mouse height;
     // hold the left button (or the Curve button) while swinging to brush,
-    // right button to loop, Space to chop.
+    // right button to loop, Space to chop. A controller plays the same
+    // inputs: its sticks move the pointer, its shoulders are the buttons.
     input.p1vx =
       dt > 0
         ? Math.max(-40, Math.min(40, (targetX - prevP1.current) / dt))
         : 0;
     prevP1.current = targetX;
     input.p1x = targetX;
-    input.p1aim = Math.max(-1, Math.min(1, state.pointer.y * 1.4));
-    input.p1spin = k.lmb || touchHeld.curve
+    input.p1aim = Math.max(-1, Math.min(1, pointer.y * 1.4));
+    input.p1spin = k.lmb || touchHeld.curve || pad1.curve
       ? Math.sign(input.p1vx) * Math.min(Math.abs(input.p1vx) / 22, 1)
       : 0;
     // Mouse and keyboard, or the touch buttons; loop wins if both are held,
     // as it does with the right button and Space.
-    input.p1tech = k.rmb || touchHeld.loop ? TECH.LOOP : k.space || touchHeld.chop ? TECH.CHOP : TECH.DRIVE;
+    input.p1tech = k.rmb || touchHeld.loop || pad1.loop
+      ? TECH.LOOP
+      : k.space || touchHeld.chop || pad1.chop ? TECH.CHOP : TECH.DRIVE;
 
     // Depth: keys walk where you want to stand, the wheel jumps it, and
     // the paddle glides there. The camera follows, so stepping back is
     // felt as a step back rather than seen as a paddle shrinking.
     const d = depth.current;
-    // Keys or the on-screen step buttons, whichever is held.
+    // Keys, the on-screen step buttons or the controller, whichever is held.
     const fwd = k.fwd || touchHeld.fwd;
     const back = k.back || touchHeld.back;
-    d.p1Want = clampDepth(d.p1Want + ((back ? 1 : 0) - (fwd ? 1 : 0)) * DEPTH_WALK * dt);
+    const walk = Math.max(-1, Math.min(1, (back ? 1 : 0) - (fwd ? 1 : 0) + pad1.step));
+    d.p1Want = clampDepth(d.p1Want + walk * DEPTH_WALK * dt);
     d.p1 = glide(d.p1, d.p1Want, DEPTH_GLIDE * dt);
     input.p1z = d.p1;
     fx.depth = d.p1 - DEPTH.HOME;
 
     // Player 2 (versus): keyboard. Shift while moving brushes, E loops,
-    // Q chops, R/F step in and back.
+    // Q chops, R/F step in and back — or the second controller, which
+    // plays exactly like player 1's. Whichever was used last has the paddle.
     if (mode === "versus") {
-      const vx = (k.right ? P2_SPEED : 0) - (k.left ? P2_SPEED : 0);
-      input.p2x = Math.max(-P1_RANGE, Math.min(P1_RANGE, input.p2x + vx * dt));
-      input.p2vx = vx;
-      input.p2aim = Math.max(
-        -1,
-        Math.min(1, input.p2aim + ((k.up ? 1 : 0) - (k.down ? 1 : 0)) * dt * 2)
-      );
-      input.p2spin = k.p2brush && vx !== 0 ? Math.sign(vx) : 0;
-      input.p2tech = k.p2loop ? TECH.LOOP : k.p2chop ? TECH.CHOP : TECH.DRIVE;
-      d.p2Want = clampDepth(d.p2Want + ((k.p2back ? 1 : 0) - (k.p2fwd ? 1 : 0)) * DEPTH_WALK * dt);
+      const pad2 = padPlayers[1];
+      if (k.left || k.right || k.up || k.down) pad2.active = false;
+      if (pad2.active) {
+        const x = pad2.x * P1_RANGE;
+        input.p2vx = dt > 0 ? Math.max(-40, Math.min(40, (x - input.p2x) / dt)) : 0;
+        input.p2x = x;
+        input.p2aim = Math.max(-1, Math.min(1, pad2.y * 1.4));
+        input.p2spin = k.p2brush || pad2.curve
+          ? Math.sign(input.p2vx) * Math.min(Math.abs(input.p2vx) / 22, 1)
+          : 0;
+      } else {
+        const vx = (k.right ? P2_SPEED : 0) - (k.left ? P2_SPEED : 0);
+        input.p2x = Math.max(-P1_RANGE, Math.min(P1_RANGE, input.p2x + vx * dt));
+        input.p2vx = vx;
+        input.p2aim = Math.max(
+          -1,
+          Math.min(1, input.p2aim + ((k.up ? 1 : 0) - (k.down ? 1 : 0)) * dt * 2)
+        );
+        input.p2spin = k.p2brush && vx !== 0 ? Math.sign(vx) : 0;
+        // A controller picked up next takes over from here, not from centre.
+        pad2.x = input.p2x / P1_RANGE;
+      }
+      input.p2tech = k.p2loop || pad2.loop ? TECH.LOOP : k.p2chop || pad2.chop ? TECH.CHOP : TECH.DRIVE;
+      const walk2 = Math.max(-1, Math.min(1, (k.p2back ? 1 : 0) - (k.p2fwd ? 1 : 0) + pad2.step));
+      d.p2Want = clampDepth(d.p2Want + walk2 * DEPTH_WALK * dt);
       d.p2 = glide(d.p2, d.p2Want, DEPTH_GLIDE * dt);
       input.p2z = d.p2;
     }
@@ -390,6 +415,12 @@ export default function MatchScene() {
         ring(ball.x, ball.y, ball.z);
         rallyTick(rallyHits);
         lunge.current[e.a - 1] = 1;
+        // The hitter's controller feels it: a tap, or a thump for a smash.
+        const hitter = e.a === myPlayer ? padPlayers[0] : mode === "versus" ? padPlayers[1] : null;
+        if (hitter?.active) {
+          if (e.b > 34) rumble(hitter.index, 0.8, 1, 140);
+          else rumble(hitter.index, 0.2, 0.6, 60);
+        }
         if (e.b > 34) {
           audio.smash();
           kick(0.35);
@@ -452,7 +483,7 @@ export default function MatchScene() {
     const other = refs[1 - me];
     const dirs = [-1, 1]; // toward the net for player 1 / player 2
     if (own) {
-      const y = PADDLE_Y_MIN + ((state.pointer.y + 1) / 2) * (PADDLE_Y_MAX - PADDLE_Y_MIN);
+      const y = PADDLE_Y_MIN + ((pointer.y + 1) / 2) * (PADDLE_Y_MAX - PADDLE_Y_MIN);
       const sign = me === 0 ? 1 : -1;
       const face =
         sign * (input.p1aim * 0.35 + (input.p1tech === TECH.CHOP ? 0.45 : input.p1tech === TECH.LOOP ? -0.3 : 0));

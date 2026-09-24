@@ -4,6 +4,8 @@ import { STAGES } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
 import { PauseIcon, PlayIcon, SoundIcon, MutedIcon, StepInIcon, StepBackIcon } from "./icons.jsx";
 import { touchHeld, releaseTouch, prefersTouch } from "../game/touchControls.js";
+import { padLabels } from "../game/gamepad.js";
+import { usePadStatus } from "./usePad.js";
 
 function Lives() {
   const lives = useStore((state) => state.lives);
@@ -132,12 +134,31 @@ function MatchHUD() {
 }
 
 
+/** A controller's row of the legend, in that controller's own button names. */
+function PadRow({ tag, id }) {
+  const l = padLabels(id);
+  return (
+    <div className="legend-row">
+      <span className="legend-tag">{tag}</span>
+      <span>left stick moves, up/down steps</span>
+      <span>right stick: flick to swing, up to lob</span>
+      <span><kbd>{l.curve}</kbd> curve</span>
+      <span><kbd>{l.loop}</kbd> loop</span>
+      <span><kbd>{l.chop}</kbd> chop</span>
+      <span><kbd>{l.start}</kbd> pause</span>
+    </div>
+  );
+}
+
 /**
  * Control legend: shown for the first seconds of a match, then hidden;
- * H brings it back. Keeps the HUD quiet during play.
+ * H brings it back. Keeps the HUD quiet during play. A connected
+ * controller is assumed to be the one in use: player 1 gets the first,
+ * and in two-player, player 2 the second.
  */
 function Legend({ mode, touch }) {
   const matchKey = useStore((state) => state.matchKey);
+  const pads = usePadStatus((state) => state.ids);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
     setVisible(true);
@@ -154,7 +175,9 @@ function Legend({ mode, touch }) {
   if (!visible) return null;
   // On a touchscreen only list what a finger can do: there is no right
   // button, no Space and no H/P/M keys to press.
-  const p1 = touch ? (
+  const p1 = pads.length > 0 ? (
+    <PadRow tag={mode === "versus" ? "P1" : "You"} id={pads[0]} />
+  ) : touch ? (
     <div className="legend-row">
       <span className="legend-tag">{mode === "versus" ? "P1" : "You"}</span>
       <span>drag to move</span>
@@ -181,7 +204,8 @@ function Legend({ mode, touch }) {
   return (
     <div className="legend" aria-label="Controls">
       {p1}
-      {mode === "versus" && (
+      {mode === "versus" && pads.length >= 2 && <PadRow tag="P2" id={pads[1]} />}
+      {mode === "versus" && pads.length < 2 && (
         <div className="legend-row">
           <span className="legend-tag">P2</span>
           <span><kbd>A</kbd><kbd>D</kbd> move</span>
@@ -301,6 +325,28 @@ function TouchControls() {
   );
 }
 
+/** A controller arriving or leaving says so, briefly. */
+function PadToast() {
+  const count = usePadStatus((state) => state.count);
+  const [toast, setToast] = useState(null);
+  const [seen, setSeen] = useState(count);
+  if (count !== seen) {
+    setSeen(count);
+    setToast({ id: Date.now(), text: count > seen ? "Controller connected" : "Controller disconnected" });
+  }
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+  if (!toast) return null;
+  return (
+    <div className="pad-toast" role="status" key={toast.id}>
+      {toast.text}
+    </div>
+  );
+}
+
 function Banner() {
   const banner = useStore((state) => state.banner);
   if (!banner) return null;
@@ -347,6 +393,7 @@ export default function HUD() {
         </div>
       )}
       <Banner />
+      <PadToast />
     </>
   );
 }

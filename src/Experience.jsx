@@ -5,6 +5,7 @@ import Scene from "./components/Scene.jsx";
 import HUD from "./ui/HUD.jsx";
 import Screens from "./ui/Screens.jsx";
 import { useStore } from "./game/store.js";
+import { usePadShortcuts } from "./ui/usePad.js";
 import { GitHubIcon, StarIcon } from "./ui/icons.jsx";
 
 function useKeyboardShortcuts() {
@@ -23,6 +24,7 @@ function useKeyboardShortcuts() {
 
 export default function Experience() {
   useKeyboardShortcuts();
+  usePadShortcuts();
   const quality = useStore((state) => state.quality);
   const phase = useStore((state) => state.phase);
   const { degradeQuality } = useStore((state) => state.api);
