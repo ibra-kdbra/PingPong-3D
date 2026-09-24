@@ -6,10 +6,12 @@ import { MathUtils } from "three";
 import { STAGES, VERSUS_THEME } from "../game/stages.js";
 import { useStore, useLevel } from "../game/store.js";
 import { fx } from "../game/fx.js";
+import { padPlayers } from "../game/gamepad.js";
 import Arena from "./Arena.jsx";
 import Ball from "./Ball.jsx";
 import MatchScene from "./MatchScene.jsx";
 import Paddle from "./Paddle.jsx";
+import PadInput from "./PadInput.jsx";
 
 /**
  * How much of the player's step the camera takes with it. Most of it, so
@@ -19,10 +21,12 @@ import Paddle from "./Paddle.jsx";
 const DEPTH_FOLLOW = 0.85;
 
 /** Subtle mouse parallax around a per-mode camera base, plus impact shake.
- *  `follow` makes it step in and back with the local player. */
+ *  `follow` makes it step in and back with the local player. The parallax
+ *  follows the controller instead while it has the paddle. */
 function CameraRig({ base, look, mirror = false, follow = false }) {
   useFrame((state, delta) => {
-    const { camera, pointer } = state;
+    const { camera } = state;
+    const pointer = padPlayers[0].active ? padPlayers[0] : state.pointer;
     if (import.meta.env.DEV) window.__camera = camera;
     camera.position.x = MathUtils.lerp(
       camera.position.x,
@@ -153,6 +157,7 @@ export default function Scene() {
 
   return (
     <>
+      <PadInput />
       <Environment theme={theme} accentLight={theme.accent} />
       {inMatch ? (
         <>

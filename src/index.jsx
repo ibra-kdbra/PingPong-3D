@@ -13,7 +13,8 @@ if (import.meta.env.DEV) {
     import("./game/match.js"),
     import("./net/current.js"),
     import("./game/fx.js"),
-  ]).then(([transport, session, match, current, fx]) => {
+    import("./game/gamepad.js"),
+  ]).then(([transport, session, match, current, fx, gamepad]) => {
     window.__net = {
       ...transport,
       ...session,
@@ -21,6 +22,7 @@ if (import.meta.env.DEV) {
       current: current.net,
     };
     window.__fx = fx.fx;
+    window.__pad = gamepad.padPlayers;
   });
 }
 
